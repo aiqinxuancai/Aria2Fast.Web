@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "name": "aria2fast-browser-tests",
+  "devDependencies": { "playwright": "1.62.0" }
+}

@@ -1,0 +1,85 @@
+const { spawn } = require('node:child_process');
+const { once } = require('node:events');
+const fs = require('node:fs');
+const path = require('node:path');
+const readline = require('node:readline');
+const assert = require('node:assert/strict');
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const root = path.resolve(__dirname, '../..');
+
+(async () => {
+  const server = spawn(process.env.PYTHON || 'python', ['tests/integration.py', '--serve'], { cwd: root, stdio: ['pipe', 'pipe', 'inherit'] });
+  let browser;
+  const deadline = setTimeout(() => { server.kill(); throw new Error('Browser test timed out'); }, 120000);
+  try {
+    const line = readline.createInterface({ input: server.stdout });
+    const info = await new Promise((resolve, reject) => {
+      line.on('line', text => { if (text.startsWith('{')) resolve(JSON.parse(text)); });
+      server.on('exit', code => reject(new Error('Fixture exited ' + code)));
+    });
+    browser = await chromium.launch({ headless: true, ...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {}) });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, colorScheme: 'light' });
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(info.base);
+    await page.locator('#login-form input').fill(info.password);
+    await page.locator('#login-form button').click();
+    await page.locator('#stat-down').filter({hasText:'KB'}).waitFor();
+    await page.locator('#quick-add').click();
+    await page.locator('#add-form textarea').fill(info.fixture + '/file-ui.bin');
+    await page.locator('#add-form button[type=submit]').click();
+    await page.locator('.task-name').filter({hasText:'file-ui.bin'}).waitFor();
+    fs.mkdirSync(path.join(root, 'artifacts/screenshots'), { recursive: true });
+    await page.screenshot({ path: path.join(root, 'artifacts/screenshots/desktop-light.png'), fullPage: true });
+    await page.locator('[data-action=pause]').first().click();
+    await page.locator('.badge.paused').waitFor();
+    await page.locator('nav a[data-page=subscriptions]').click();
+    await page.locator('#new-sub').click();
+    await page.locator('#sub-form input[name=name]').fill('浏览器订阅测试');
+    await page.locator('#sub-form input[name=url]').fill(info.fixture + '/feed');
+    await page.locator('#preview-sub').click();
+    await page.locator('#feed-preview .file-row').waitFor();
+    await page.locator('#sub-form button[type=submit]').click();
+    await page.locator('.sub-card').waitFor();
+    await page.locator('nav a[data-page=anime]').click();
+    await page.locator('.anime-card').waitFor();
+    await page.locator('.anime-card').first().click();
+    await page.locator('[data-sub]').waitFor();
+    await page.locator('#modal-close').click();
+    await page.locator('nav a[data-page=settings]').click();
+    await page.locator('#settings-theme').selectOption('dark');
+    assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
+    await page.locator('#settings-theme').selectOption('auto');
+    await page.waitForTimeout(100);
+    await page.emulateMedia({colorScheme:'dark'});
+    await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
+    assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
+    await page.locator('#new-ai').click();
+    await page.locator('#ai-form input[name=baseUrl]').fill(info.fixture);
+    await page.locator('#ai-form input[name=modelName]').fill('test-model');
+    await page.locator('#ai-form input[name=apiKey]').fill('test-key');
+    await page.locator('#ai-form button[type=submit]').click();
+    await page.locator('[data-edit-ai]').waitFor();
+    await page.locator('#test-ai').click();
+    await page.getByText('连接成功', {exact:true}).waitFor();
+    await page.setViewportSize({width:390,height:844});
+    for (const tab of ['downloads','subscriptions','anime','activity','settings']) {
+      await page.locator('nav a[data-page=' + tab + ']').click();
+      await page.waitForTimeout(400);
+      await page.evaluate(() => { window.scrollTo(0,0); document.querySelector('#toasts').replaceChildren(); });
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, 'overflow on '+tab);
+      await page.screenshot({path:path.join(root,'artifacts/screenshots/mobile-'+tab+'.png'),fullPage:true});
+    }
+    await page.locator('#settings-theme').selectOption('light');
+    await page.reload();
+    await page.locator('#settings-theme').waitFor();
+    assert.equal(await page.locator('html').getAttribute('data-theme'),'light');
+    assert.deepEqual(errors, []);
+    console.log('PASS browser: login, add/pause task, subscription preview/save, anime detail, AI configuration/test, mobile navigation/overflow, auto/manual theme persistence; no JS errors');
+  } finally {
+    clearTimeout(deadline);
+    if(browser) await browser.close();
+    server.stdin.end();
+    await once(server,'exit').catch(()=>{});
+  }
+})().catch(error => { console.error(error); process.exitCode=1; });

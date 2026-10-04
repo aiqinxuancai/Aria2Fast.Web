@@ -1,0 +1,14 @@
+**/bin/
+**/obj/
+**/data/
+**/downloads/
+**/node_modules/
+artifacts/
+.test-data/
+.env
+.vs/
+*.user
+*.log
+playwright-report/
+**/__pycache__/
+*.pyc

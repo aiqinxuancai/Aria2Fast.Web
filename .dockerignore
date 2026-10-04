@@ -1,0 +1,12 @@
+.git
+.vs
+**/bin
+**/obj
+**/node_modules
+**/data
+**/downloads
+artifacts
+scaffold-recovery
+.test-data
+.env
+tests

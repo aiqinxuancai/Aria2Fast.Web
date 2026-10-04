@@ -1,0 +1,18 @@
+services:
+  aria2fast:
+    image: ${ARIA2FAST_IMAGE:-aria2fast-web:local}
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${ARIA2FAST_PORT:-8080}:8080"
+    environment:
+      TZ: Asia/Shanghai
+      ARIA2FAST_PASSWORD: ${ARIA2FAST_PASSWORD:-}
+    volumes:
+      - app-data:/data
+      - downloads:/downloads
+    stop_grace_period: 30s
+
+volumes:
+  app-data:
+  downloads:

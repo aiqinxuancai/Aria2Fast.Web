@@ -1,0 +1,153 @@
+name: Release binaries and GHCR
+on:
+  push:
+    tags: ['*']
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+  binaries:
+    needs: checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: macos-15-intel
+            rid: osx-x64
+          - os: macos-15
+            rid: osx-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Publish self-contained web application
+        shell: pwsh
+        env:
+          RID: ${{ matrix.rid }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          dotnet publish src/Aria2Fast.Web -c Release -r $env:RID --self-contained true -o artifacts/publish -p:InformationalVersion=$env:RELEASE_TAG
+          if ($LASTEXITCODE -ne 0) { throw 'Publish failed' }
+          Copy-Item LICENSE.txt,THIRD-PARTY-NOTICES.md,README.md artifacts/publish/
+      - name: Bundle Windows aria2
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./scripts/install-aria2.ps1 -Destination artifacts/publish/aria2
+          Copy-Item scripts/start-windows.cmd artifacts/publish/Start.cmd
+      - name: Bundle macOS aria2 and dynamic libraries
+        if: runner.os == 'macOS'
+        run: |
+          brew install aria2
+          python3 scripts/bundle-macos.py artifacts/publish/aria2
+          cp scripts/start-macos.command artifacts/publish/Start.command
+          chmod +x artifacts/publish/Start.command artifacts/publish/Aria2Fast.Web
+      - name: Verify packaged app with real aria2 download
+        shell: pwsh
+        env:
+          TEST_PUBLISH_DIR: ${{ github.workspace }}/artifacts/publish
+        run: |
+          python tests/integration.py --real-aria
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged app smoke test failed' }
+          python tests/real_downloads.py
+          if ($LASTEXITCODE -ne 0) { throw 'Real download and session recovery tests failed' }
+      - name: Upload real download test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: download-evidence-${{ matrix.rid }}
+          path: artifacts/real-download-results.json
+          if-no-files-found: ignore
+      - name: Archive release
+        shell: pwsh
+        env:
+          RID: ${{ matrix.rid }}
+        run: |
+          New-Item -ItemType Directory -Force artifacts/release | Out-Null
+          if ($IsWindows) {
+            Compress-Archive -Path artifacts/publish/* -DestinationPath "artifacts/release/Aria2Fast.Web-$env:RID.zip"
+          } else {
+            tar -czf "artifacts/release/Aria2Fast.Web-$env:RID.tar.gz" -C artifacts/publish .
+            if ($LASTEXITCODE -ne 0) { throw 'tar failed' }
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.rid }}
+          path: artifacts/release/*
+  image:
+    needs: checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Lowercase image name
+        id: image
+        shell: bash
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+  release:
+    needs: [binaries, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+      - name: Publish assets with checksums and source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          git archive --format=tar.gz --output=dist/Aria2Fast.Web-source.tar.gz HEAD
+          cd dist
+          sha256sum *.zip *.tar.gz > SHA256SUMS.txt
+          flags=()
+          if [[ "$RELEASE_TAG" == *-* ]]; then flags+=(--prerelease); fi
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --verify-tag --title "Aria2Fast Web $RELEASE_TAG" --generate-notes "${flags[@]}"
+          fi
+          gh release upload "$RELEASE_TAG" ./* --clobber

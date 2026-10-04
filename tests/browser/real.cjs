@@ -1,0 +1,76 @@
+const { spawn } = require('node:child_process');
+const { once } = require('node:events');
+const fs = require('node:fs');
+const path = require('node:path');
+const readline = require('node:readline');
+const assert = require('node:assert/strict');
+const { createHash } = require('node:crypto');
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const root = path.resolve(__dirname, '../..');
+
+(async () => {
+  const server = spawn(process.env.PYTHON || 'python', ['tests/integration.py', '--serve', '--real-aria'], { cwd: root, stdio: ['pipe', 'pipe', 'inherit'] });
+  let browser;
+  const deadline = setTimeout(() => { server.kill(); throw new Error('Real browser test timed out'); }, 120000);
+  try {
+    const lines = readline.createInterface({ input: server.stdout });
+    const info = await new Promise((resolve, reject) => {
+      lines.on('line', line => { if (line.startsWith('{')) resolve(JSON.parse(line)); });
+      server.on('exit', code => reject(new Error('Test app exited ' + code)));
+    });
+    browser = await chromium.launch({ headless: true, ...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {}) });
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2, colorScheme: 'dark', acceptDownloads: true });
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(info.base);
+    await page.locator('#login-form input').fill(info.password);
+    await page.locator('#login-form button').click();
+    await page.waitForFunction(() => document.querySelector('#connection-label')?.textContent === '节点已连接');
+    assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
+    await page.locator('#quick-add').click();
+    await page.locator('#add-form textarea').fill(info.fixture + '/file-mobile-real.bin');
+    await page.locator('#add-form button[type=submit]').click();
+    const task = page.locator('tr').filter({has: page.locator('.task-name').filter({hasText:'file-mobile-real.bin'})});
+    await task.locator('.badge.complete').waitFor({timeout:30000});
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
+    const shots = path.join(root, 'artifacts/screenshots');
+    fs.mkdirSync(shots, {recursive:true});
+    await task.scrollIntoViewIfNeeded();
+    await page.locator('#toasts').evaluate(element => element.replaceChildren());
+    await page.screenshot({path:path.join(shots,'mobile-real-complete.png')});
+    await task.locator('.task-name').click();
+    const downloadReady = page.waitForEvent('download');
+    await page.getByRole('link', {name:'取回文件'}).click();
+    const download = await downloadReady;
+    assert.equal(download.suggestedFilename(), 'file-mobile-real.bin');
+    assert.equal(await download.failure(), null);
+    const file = fs.readFileSync(await download.path());
+    const expected = Buffer.from('Aria2Fast 下载验证\n'.repeat(4096));
+    const digest = value => createHash('sha256').update(value).digest('hex');
+    assert.equal(digest(file), digest(expected));
+    await page.locator('#modal-close').click();
+    await page.locator('nav a[data-page=settings]').click();
+    await page.locator('#settings-theme').selectOption('light');
+    await page.reload();
+    await page.locator('#settings-theme').waitFor();
+    assert.equal(await page.locator('html').getAttribute('data-theme'),'light');
+    await page.locator('#settings-theme').selectOption('auto');
+    await page.emulateMedia({colorScheme:'light'});
+    await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
+    await page.emulateMedia({colorScheme:'dark'});
+    await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
+    await page.locator('nav a[data-page=downloads]').click();
+    await page.locator('.badge.complete').waitFor();
+    await page.setViewportSize({width:1440,height:1000});
+    await page.screenshot({path:path.join(shots,'desktop-real-complete.png')});
+    assert.deepEqual(errors, []);
+    const report = {viewport:'390x844 touch/mobile and 1440x1000 desktop', payloadBytes:file.length, sha256:digest(file), passed:['real aria2 task submitted through mobile UI','completion status and browser file retrieval','download filename and exact SHA256','mobile layout without overflow','system theme and manual theme persistence','no JavaScript errors']};
+    fs.writeFileSync(path.join(root,'artifacts/real-browser-results.json'),JSON.stringify(report,null,2));
+    console.log(JSON.stringify(report,null,2));
+  } finally {
+    clearTimeout(deadline);
+    if (browser) await browser.close();
+    server.stdin.end();
+    if (server.exitCode === null) await once(server,'exit');
+  }
+})().catch(error => { console.error(error); process.exitCode=1; });

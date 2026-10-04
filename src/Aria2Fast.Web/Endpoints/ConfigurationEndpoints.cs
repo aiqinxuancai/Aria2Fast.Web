@@ -1,0 +1,65 @@
+﻿using Aria2Fast.Web.Infrastructure;
+using Aria2Fast.Web.Models;
+using Aria2Fast.Web.Services;
+
+namespace Aria2Fast.Web.Endpoints;
+
+public static class ConfigurationEndpoints
+{
+    public static void MapConfiguration(this RouteGroupBuilder api)
+    {
+        api.MapGet("/state", (StateStore store, LocalAriaService local, SubscriptionService subs) =>
+        {
+            var s = store.Read();
+            return new { s.Nodes, s.SelectedNodeId, s.Settings, s.Notices, local = new { local.Running, local.Error }, checking = subs.Checking };
+        });
+        api.MapPut("/settings", (WebSettings input, StateStore store) =>
+        {
+            if (input.SubscriptionIntervalMinutes is < 1 or > 1440 || input.LocalRpcPort is < 1024 or > 65535) throw new ArgumentException("轮询间隔或 RPC 端口无效");
+            Validation.HttpUrl(input.MikanBaseUrl); Validation.HttpUrl(input.PushEndpoint);
+            if (input.Oss.IntervalMinutes is < 1 or > 1440) throw new ArgumentException("OSS 同步间隔应在 1 至 1440 分钟之间");
+            if (input.Oss.AutoSync)
+            {
+                Validation.HttpUrl(input.Oss.Endpoint);
+                if (string.IsNullOrWhiteSpace(input.Oss.Bucket) || string.IsNullOrWhiteSpace(input.Oss.AccessKeyId) || string.IsNullOrWhiteSpace(input.Oss.AccessKeySecret))
+                    throw new ArgumentException("启用自动同步前请填写完整 OSS 配置");
+            }
+            if (input.ProxyUrl.Length > 0) Validation.HttpUrl(input.ProxyUrl);
+            if (string.IsNullOrWhiteSpace(input.DownloadDirectory) || input.DownloadDirectory.Contains('\n') || input.DownloadDirectory.Contains('\r')) throw new ArgumentException("下载目录无效");
+            input.DownloadDirectory = Path.GetFullPath(input.DownloadDirectory);
+            foreach (var profile in input.AiProfiles) { Validation.HttpUrl(profile.BaseUrl); if (string.IsNullOrWhiteSpace(profile.ModelName)) throw new ArgumentException("模型名称不能为空"); }
+            store.Update(s => { input.LocalOptions = s.Settings.LocalOptions; s.Settings = input; });
+            return Results.Ok(new { ok = true });
+        });
+        api.MapPost("/local/restart", async (LocalAriaService local, CancellationToken ct) => { await local.Restart(ct); return new { local.Running, local.Error }; });
+        api.MapPost("/nodes", (AriaNode node, StateStore store) =>
+        {
+            Validation.HttpUrl(node.Url);
+            if (node.Id == "local") throw new ArgumentException("本地节点请通过设置管理");
+            if (string.IsNullOrWhiteSpace(node.Name)) throw new ArgumentException("节点名称不能为空");
+            store.Update(s => { s.Nodes.RemoveAll(n => n.Id == node.Id); s.Nodes.Add(node); });
+            return node;
+        });
+        api.MapDelete("/nodes/{id}", (string id, StateStore store) =>
+        {
+            store.Update(s =>
+            {
+                if (id == "local" || s.Subscriptions.Any(x => x.NodeId == id)) throw new ArgumentException("本地节点或有订阅关联的节点不可删除");
+                s.Nodes.RemoveAll(n => n.Id == id);
+                if (s.SelectedNodeId == id) s.SelectedNodeId = "local";
+            });
+            return Results.Ok();
+        });
+        api.MapPost("/nodes/{id}/select", (string id, StateStore store, AriaRpc rpc) => { _ = rpc.Node(id); store.Update(s => s.SelectedNodeId = id); return Results.Ok(); });
+        api.MapPost("/nodes/{id}/test", (string id, AriaRpc rpc, CancellationToken ct) => rpc.Call("getVersion", nodeId: id, ct: ct));
+        api.MapPost("/push/test", async (BackgroundWorker worker, CancellationToken ct) => { await worker.Push("Aria2Fast Web", "测试通知发送成功", ct); return Results.Ok(); });
+        api.MapPost("/ai/test", async (AiService ai, CancellationToken ct) => new { text = await ai.Send("请回复：连接成功", "你是接口测试助手。", ct) });
+        api.MapGet("/backup", (BackupService backup) => Results.File(backup.Export(), "application/json", "aria2fast-subscriptions.json"));
+        api.MapPost("/backup/import", async (HttpRequest request, BackupService backup, CancellationToken ct) =>
+        {
+            using var reader = new StreamReader(request.Body);
+            return new { imported = backup.Import(await reader.ReadToEndAsync(ct)) };
+        });
+        api.MapPost("/backup/oss/{action}", (string action, BackupService backup) => action switch { "upload" => backup.Upload(), "download" => backup.Download(), _ => throw new ArgumentException("无效操作") });
+    }
+}
