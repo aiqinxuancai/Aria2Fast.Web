@@ -20,25 +20,8 @@ public sealed class MikanService(StateStore store, HttpGateway http, IMemoryCach
         var key = $"mikan:{Root}:{year}:{season}";
         if (!refresh && cache.TryGetValue<List<AnimeCard>>(key, out var existing)) return existing!;
         var url = Root + (year.HasValue && season != null ? $"/Home/BangumiCoverFlowByDayOfWeek?year={year}&seasonStr={Uri.EscapeDataString(season)}" : "/");
-        var doc = new HtmlDocument();
-        doc.LoadHtml(await http.GetTextAsync(url, ct));
-        var cards = new List<AnimeCard>();
-        foreach (var day in doc.DocumentNode.SelectNodes("//div[contains(@class,'sk-bangumi') or contains(@class,'m-home-week-item')]") ?? Enumerable.Empty<HtmlNode>())
-        {
-            var dayName = Text(day.SelectSingleNode(".//div[starts-with(@id,'data-row-')] | .//div[@class='title']/span"));
-            foreach (var item in day.SelectNodes(".//li | .//div[contains(@class,'m-week-square')]") ?? Enumerable.Empty<HtmlNode>())
-            {
-                var link = item.SelectSingleNode(".//a[contains(@class,'an-text')]") ?? item.SelectSingleNode(".//a[contains(@href,'/Home/Bangumi/')]");
-                var href = link?.GetAttributeValue("href", "") ?? "";
-                var id = Regex.Match(href, @"/Home/Bangumi/(\d+)").Groups[1].Value;
-                var name = Text(link);
-                if (name.Length == 0) name = HtmlEntity.DeEntitize(link?.GetAttributeValue("title", "") ?? "");
-                var image = item.SelectSingleNode(".//*[@data-src]")?.GetAttributeValue("data-src", "") ?? item.SelectSingleNode(".//img")?.GetAttributeValue("src", "") ?? "";
-                if (id.Length > 0 && name.Length > 0) cards.Add(new(id, name, Absolute(href), image.Length > 0 ? Absolute(image) : "", dayName));
-            }
-        }
-        if (cards.Count == 0) throw new InvalidDataException("Mikan 未返回番剧。可能是源站不可用或页面结构改变，请检查源站地址/代理。");
-        var result = cards.DistinctBy(x => x.Id).ToList();
+        var result = MikanCalendarParser.Parse(await http.GetTextAsync(url, ct), Root);
+        if (result.Count == 0) throw new InvalidDataException("Mikan 未返回番剧。可能是源站不可用或页面结构改变，请检查源站地址/代理。");
         cache.Set(key, result, TimeSpan.FromHours(2));
         return result;
     }

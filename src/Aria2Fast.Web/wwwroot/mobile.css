@@ -24,3 +24,4 @@
   }
   #task-list .row-actions { justify-content: flex-end; }
 }
+@media(max-width:760px){.top-actions .node-picker{width:min(43vw,185px);height:38px;padding-left:12px;padding-right:28px;font-size:11px}}

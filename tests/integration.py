@@ -45,7 +45,7 @@ class Fixtures(BaseHTTPRequestHandler):
         if self.path.startswith('/Home/Bangumi/123'):
             return self.reply(b'<html><h1>Fixture Anime</h1><p class="header2-desc">A sample description.</p><div class="subgroup-text"><a>Fixture Group</a><a class="mikan-rss" href="/RSS/123">RSS</a></div></html>', 'text/html')
         if self.path.startswith(('/Home/BangumiCoverFlowByDayOfWeek', '/mikan')):
-            return self.reply(b'<div class="sk-bangumi"><div id="data-row-1">Monday</div><li><a class="an-text" href="/Home/Bangumi/123">Fixture Anime</a><span data-src="/poster.svg"></span></li></div>', 'text/html')
+            return self.reply((ROOT / 'tests/fixtures/mikan-calendar.html').read_bytes(), 'text/html')
         if self.path.startswith('/poster.svg'):
             return self.reply(b'<svg xmlns="http://www.w3.org/2000/svg" width="320" height="480"><rect width="320" height="480" fill="#41645b"/><circle cx="210" cy="160" r="90" fill="#8bbdaf"/><text x="25" y="380" fill="white" font-size="30">Test fixture</text></svg>', 'image/svg+xml')
         self.send_error(404)
@@ -258,7 +258,11 @@ def main():
         api('/subscriptions/check', 'POST', {'id': sub['id']})
         history = api('/subscriptions')[0]['history']
         assert len(history) == 2 and history[-1]['gid']
-        assert api('/anime?year=2026&season=' + parse.quote('秋'))[0]['id'] == '123'
+        calendar = api('/anime?year=2026&season=' + parse.quote('秋'))
+        assert [c['id'] for c in calendar] == ['123', '456', '789'], calendar
+        assert [c['day'] for c in calendar] == ['星期一', '星期三', '星期日']
+        assert [c['hasReleases'] for c in calendar] == [True, False, False]
+        assert calendar[2]['name'] == '周日待发布 & 新番'
         assert api('/anime/123')['groups'][0]['name'] == 'Fixture Group'
         for protocol in ['OpenAIChatCompletions', 'OpenAIResponses', 'Claude', 'Gemini']:
             config = api('/state')['settings']

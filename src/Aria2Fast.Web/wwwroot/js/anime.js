@@ -2,6 +2,9 @@ import {$,esc,state,api,toast,run,modal,heading,empty,bytes} from './core.js';
 import {editSubscription} from './subscriptions.js';
 import {addTask} from './downloads.js';
 let cards=[];let search='';let day='全部';
+const weekdays=['星期一','星期二','星期三','星期四','星期五','星期六','星期日'];
+const dayOrder=value=>{const index=weekdays.indexOf(value);return index<0?7:index;};
+const orderedDays=items=>[...new Set(items.map(c=>c.day||'其他'))].sort((a,b)=>dayOrder(a)-dayOrder(b));
 export async function anime(){
   const now=new Date();
   $('#content').innerHTML='<div class="anime-hero"><div class="eyebrow">DISCOVER YOUR NEXT FAVORITE</div><h1>新的故事，正在发生。</h1><p>从当季新番到心仪的续作，在这里发现、订阅，静待下一集。</p></div><div class="page-heading"><div><h2>探索番剧</h2><p>Mikan 番剧日历 · 字幕组订阅 · AI 评析</p></div><div class="toolbar"><select id="anime-year" aria-label="年份">'+Array.from({length:12},(_,i)=>now.getFullYear()-i).map(y=>'<option>'+y+'</option>').join('')+'</select><select id="anime-season" aria-label="季度">'+['冬','春','夏','秋'].map((s,i)=>'<option '+(i===Math.floor(now.getMonth()/3)?'selected':'')+'>'+s+'</option>').join('')+'</select><button id="anime-load">↻ 加载季度</button></div></div><div class="panel-head" style="padding:0 0 20px;border:0"><div id="day-tabs" class="tabs"></div><input id="anime-search" type="search" class="search" placeholder="搜索作品名称…" aria-label="搜索番剧"></div><div id="anime-results"><div class="loading">正在连接 Mikan…</div></div>';
@@ -12,11 +15,18 @@ export async function anime(){
 async function load(refresh){
   const year=$('#anime-year').value;const season=$('#anime-season').value;
   $('#anime-results').innerHTML='<div class="loading">正在获取季度番剧…</div>';
-  try{cards=await api('/anime?year='+year+'&season='+encodeURIComponent(season)+'&refresh='+refresh);if(state.page!=='anime')return;const days=['全部',...new Set(cards.map(c=>c.day).filter(Boolean))];if(!days.includes(day))day='全部';$('#day-tabs').innerHTML=days.map(d=>'<button data-day="'+esc(d)+'" class="'+(d===day?'active':'')+'">'+esc(d)+'</button>').join('');$('#day-tabs').onclick=e=>{const b=e.target.closest('[data-day]');if(b){day=b.dataset.day;$('#day-tabs').querySelectorAll('button').forEach(x=>x.classList.toggle('active',x===b));render();}};render();}catch(error){if(state.page==='anime')$('#anime-results').innerHTML='<div class="callout error">'+esc(error.message)+'<br>可在设置中切换 Mikan 源站、配置代理后重试。</div>';}
+  try{cards=await api('/anime?year='+year+'&season='+encodeURIComponent(season)+'&refresh='+refresh);if(state.page!=='anime')return;const days=['全部',...orderedDays(cards)];if(!days.includes(day))day='全部';$('#day-tabs').innerHTML=days.map(d=>'<button data-day="'+esc(d)+'" class="'+(d===day?'active':'')+'">'+esc(d)+'</button>').join('');$('#day-tabs').onclick=e=>{const b=e.target.closest('[data-day]');if(b){day=b.dataset.day;$('#day-tabs').querySelectorAll('button').forEach(x=>x.classList.toggle('active',x===b));render();}};render();}catch(error){if(state.page==='anime')$('#anime-results').innerHTML='<div class="callout error">'+esc(error.message)+'<br>可在设置中切换 Mikan 源站、配置代理后重试。</div>';}
+}
+function cardMarkup(c){
+  const unpublished=c.hasReleases===false;
+  return '<button class="anime-card'+(unpublished?' unpublished':'')+'" '+(unpublished?'disabled aria-label="'+esc(c.name+'，暂无字幕组发布')+'"':'data-anime="'+esc(c.id)+'"')+'><div class="poster">'+(c.image?'<img loading="lazy" src="'+esc(c.image)+'" alt="'+esc(c.name)+'" referrerpolicy="no-referrer">':'')+'<span>'+esc(unpublished?'暂无字幕组发布':c.day||'连载中')+'</span></div><h3>'+esc(c.name)+'</h3><small>'+(unpublished?'等待字幕组发布':'查看字幕组与作品详情 →')+'</small></button>';
 }
 function render(){
-  const matches=cards.filter(c=>(day==='全部'||c.day===day)&&c.name.toLowerCase().includes(search.toLowerCase()));
-  $('#anime-results').innerHTML=matches.length?'<div class="anime-grid">'+matches.map(c=>'<button class="anime-card" data-anime="'+esc(c.id)+'"><div class="poster">'+(c.image?'<img loading="lazy" src="'+esc(c.image)+'" alt="'+esc(c.name)+'" referrerpolicy="no-referrer">':'')+'<span>'+esc(c.day||'连载中')+'</span></div><h3>'+esc(c.name)+'</h3><small>查看字幕组与作品详情 →</small></button>').join('')+'</div>':empty('没有找到相关作品','换个关键词，或选择其他季度试试看。','▦');
+  const matches=cards.filter(c=>(day==='全部'||(c.day||'其他')===day)&&c.name.toLowerCase().includes(search.toLowerCase()));
+  $('#anime-results').innerHTML=matches.length?orderedDays(matches).map(d=>{
+    const items=matches.filter(c=>(c.day||'其他')===d);
+    return '<section class="anime-day" aria-label="'+esc(d)+'"><div class="anime-day-heading"><h2>'+esc(d)+'</h2><span>'+items.length+' 部作品</span></div><div class="anime-grid">'+items.map(cardMarkup).join('')+'</div></section>';
+  }).join(''):empty('没有找到相关作品','换个关键词，或选择其他季度试试看。','▦');
   $('#anime-results').querySelectorAll('[data-anime]').forEach(b=>b.onclick=()=>run(()=>detail(b.dataset.anime),b));
 }
 async function detail(id){

@@ -24,7 +24,7 @@ public sealed class Subscription
 public sealed record SubscriptionEntry(string Key, string Title, string Url, string? Gid, DateTimeOffset Time, bool Skipped = false);
 public sealed record FeedItem(string Key, string Title, string Url, DateTimeOffset? Published, string Size);
 public sealed record FeedPreview(string Title, List<FeedItem> Items);
-public sealed record AnimeCard(string Id, string Name, string Url, string Image, string Day);
+public sealed record AnimeCard(string Id, string Name, string Url, string Image, string Day, bool HasReleases = true);
 public sealed record AnimeGroup(string Name, string Url);
 public sealed record AnimeDetail(string Id, string Name, string Summary, List<AnimeGroup> Groups, TmdbInfo? Tmdb, AiReview? Review);
 public sealed record TmdbInfo(int Id, string Name, string Overview, double Score, int VoteCount, double Popularity, string Poster, string FirstAirDate);
