@@ -25,6 +25,22 @@ Test("AI JSON strips fences", () => Assert(AiService.CleanJson("before\n" + '{' 
 Test("AI protocol custom version", () => Assert(AiProtocol.BuildRequestUrl(AiProtocolType.OpenAIChatCompletions, "https://example.com/v1", "test") == "https://example.com/v1/chat/completions"));
 
 var temporary = Path.Combine(Path.GetTempPath(), "aria2fast-tests-" + Guid.NewGuid().ToString("N"));
+Test("Subscription paths match default, sanitized name, AI and season order", () =>
+{
+    Assert(DownloadPaths.Compose("D:\\Downloads\\", "作品:名称", 2, "识别名") == "D:\\Downloads/作品_名称/识别名/Season 2");
+    Assert(DownloadPaths.Compose("/downloads/", "", 0) == "/downloads/");
+});
+Test("Desktop Hot thresholds and latest first release per group", () =>
+{
+    var now = new DateTimeOffset(2026, 10, 5, 12, 0, 0, TimeSpan.FromHours(8));
+    string Group(int episode, string date) => $"<div class='subgroup-text'><a class='mikan-rss'>RSS</a></div><div class='episode-table'><table><tbody><tr><td></td><td><a class='magnet-link-wrap'>作品 - {episode:00}</a></td><td>1 GB</td><td>{date}</td></tr><tr><td></td><td><a class='magnet-link-wrap'>作品 - 99</a></td></tr></tbody></table></div>";
+    var html = string.Concat(Enumerable.Range(1, 5).Select(i => Group(i, "2026/10/05 08:00")));
+    var badges = MikanBadges.Parse(html, now);
+    Assert(badges.Hot == "pink" && badges.LatestEpisode == 5 && badges.UpdatedGroups == 5);
+    badges = MikanBadges.Parse(html + Group(6, "2026/10/04 08:00") + Group(12, "2026/10/06 08:00"), now);
+    Assert(badges.Hot == "purple" && badges.LatestEpisode == 12 && badges.UpdatedGroups == 5);
+    Assert(new AnimeBadges(4, 0, 0).Hot == "" && new AnimeBadges(6, 0, 0).Hot == "pink");
+});
 Directory.CreateDirectory(temporary);
 try
 {

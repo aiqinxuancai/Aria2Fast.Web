@@ -13,6 +13,25 @@ public sealed class MikanService(StateStore store, HttpGateway http, IMemoryCach
     private string Root => store.Read().Settings.MikanBaseUrl.TrimEnd('/');
     private string Absolute(string value) => Uri.TryCreate(new Uri(Root), value, out var uri) && uri.Scheme is "http" or "https" ? uri.AbsoluteUri : "";
     private static string Text(HtmlNode? node) => HtmlEntity.DeEntitize(node?.InnerText ?? "").Trim();
+    private readonly SemaphoreSlim badgeGate = new(4);
+
+    public async Task<AnimeBadges> Badges(string id, CancellationToken ct)
+    {
+        if (!Regex.IsMatch(id, @"^\d{1,12}$")) throw new ArgumentException("番剧 ID 无效");
+        var root = Root;
+        var key = $"badges:{root}:{id}";
+        if (cache.TryGetValue<AnimeBadges>(key, out var hit)) return hit!;
+        await badgeGate.WaitAsync(ct);
+        try
+        {
+            if (cache.TryGetValue<AnimeBadges>(key, out hit)) return hit!;
+            var html = await http.GetTextAsync(root + "/Home/Bangumi/" + id, ct);
+            var result = MikanBadges.Parse(html, DateTimeOffset.UtcNow);
+            cache.Set(key, result, TimeSpan.FromMinutes(10));
+            return result;
+        }
+        finally { badgeGate.Release(); }
+    }
 
     public async Task<List<AnimeCard>> List(int? year, string? season, bool refresh, CancellationToken ct)
     {

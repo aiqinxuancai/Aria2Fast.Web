@@ -52,6 +52,7 @@ public static class ConfigurationEndpoints
         });
         api.MapPost("/nodes/{id}/select", (string id, StateStore store, AriaRpc rpc) => { _ = rpc.Node(id); store.Update(s => s.SelectedNodeId = id); return Results.Ok(); });
         api.MapPost("/nodes/{id}/test", (string id, AriaRpc rpc, CancellationToken ct) => rpc.Call("getVersion", nodeId: id, ct: ct));
+        api.MapGet("/nodes/{id}/directory", async (string id, DownloadPaths paths, CancellationToken ct) => new { directory = await paths.Default(id, ct) });
         api.MapPost("/push/test", async (BackgroundWorker worker, CancellationToken ct) => { await worker.Push("Aria2Fast Web", "测试通知发送成功", ct); return Results.Ok(); });
         api.MapPost("/ai/test", async (AiService ai, CancellationToken ct) => new { text = await ai.Send("请回复：连接成功", "你是接口测试助手。", ct) });
         api.MapGet("/backup", (BackupService backup) => Results.File(backup.Export(), "application/json", "aria2fast-subscriptions.json"));

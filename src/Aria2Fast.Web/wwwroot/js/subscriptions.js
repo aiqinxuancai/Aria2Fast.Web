@@ -1,3 +1,4 @@
+import {directoryField,bindDirectory,rememberDirectory,previewDialog} from './directory-picker.js';
 import {$,esc,state,api,toast,run,modal,closeModal,heading,empty,field,check,bindForm,nodeOptions,time} from './core.js';
 let list=[];
 export async function subscriptions(){
@@ -13,7 +14,13 @@ export async function subscriptions(){
 
 export function editSubscription(source={}){
   const s={name:'',url:'',nodeId:state.config.selectedNodeId,directory:'',namePath:'',season:0,filter:'',excludeFilter:'',isFilterRegex:false,autoDir:false,enabled:true,skipExisting:true,...source};
-  modal(source.id?'编辑订阅':'添加订阅','<form id="sub-form"><div class="form-grid">'+field('订阅名称','name',s.name,'text','required')+'<label>下载节点<select name="nodeId">'+nodeOptions(s.nodeId)+'</select></label><div class="full">'+field('RSS / Atom 地址','url',s.url,'url','required')+'</div>'+field('下载基础目录','directory',s.directory,'text','placeholder="留空使用节点默认目录"')+field('作品目录名','namePath',s.namePath)+field('季度（0 = 不分季）','season',s.season,'number','min="0" max="999"')+field('包含关键词（多个用 | 分隔）','filter',s.filter)+field('排除关键词','excludeFilter',s.excludeFilter)+'<div class="stack">'+check('使用正则表达式', 'isFilterRegex',s.isFilterRegex)+check('AI 按作品分目录', 'autoDir',s.autoDir)+check('启用自动检查','enabled',s.enabled)+(!source.id?check('跳过首次检查已有内容','skipExisting',s.skipExisting):'')+'</div></div><div class="form-actions"><button type="button" id="preview-sub">预览匹配</button><button type="submit" class="primary">保存订阅</button></div><div id="feed-preview"></div></form>');
-  $('#preview-sub').onclick=e=>run(async()=>{const form=$('#sub-form');const result=await api('/subscriptions/preview','POST',{url:form.elements.url.value,filter:form.elements.filter.value,isFilterRegex:form.elements.isFilterRegex.checked});$('#feed-preview').innerHTML='<h3 style="margin-top:25px">'+esc(result.title)+'</h3><div class="file-list">'+result.items.map(x=>'<div class="file-row"><span class="badge '+(x.matches?'':'paused')+'">'+(x.matches?'匹配':'忽略')+'</span><span>'+esc(x.item.title)+'</span></div>').join('')+'</div>';},e.target);
-  bindForm('#sub-form',async data=>{await api('/subscriptions','POST',{...s,...data});closeModal();toast('订阅已保存');if(state.page==='subscriptions')await subscriptions();});
+  modal(source.id?'编辑订阅':'添加订阅','<form id="sub-form"><div class="form-grid">'+field('订阅名称','name',s.name,'text','required')+'<label>下载节点<select name="nodeId">'+nodeOptions(s.nodeId)+'</select></label><div class="full">'+field('RSS / Atom 地址','url',s.url,'url','required')+'</div>'+directoryField('下载基础目录',s.directory)+field('作品目录名','namePath',s.namePath)+field('季度（0 = 不分季）','season',s.season,'number','min="0" max="999"')+field('包含关键词（多个用 | 分隔）','filter',s.filter)+field('排除关键词','excludeFilter',s.excludeFilter)+'<div class="stack">'+check('使用正则表达式', 'isFilterRegex',s.isFilterRegex)+check('AI 按作品分目录', 'autoDir',s.autoDir)+check('启用自动检查','enabled',s.enabled)+(!source.id?check('跳过首次检查已有内容','skipExisting',s.skipExisting):'')+'</div><div class="full callout directory-summary"><strong>最终完整下载目录</strong><div data-final-directory></div><small class="hint" data-ai-path-note hidden>AI 作品名将在每条资源下载时确定。</small></div></div><div class="form-actions"><button type="button" id="preview-sub">预览匹配</button><button type="submit" class="primary">保存订阅</button></div></form>');
+  bindDirectory($('#sub-form'),true);
+  $('#preview-sub').onclick=e=>run(async()=>{
+    const form=$('#sub-form');
+    const result=await api('/subscriptions/preview','POST',{url:form.elements.url.value,filter:form.elements.filter.value,excludeFilter:form.elements.excludeFilter.value,isFilterRegex:form.elements.isFilterRegex.checked});
+    if(!form.isConnected)return;
+    previewDialog('订阅匹配预览','<p class="hint">'+esc(result.title)+' · '+result.items.filter(x=>x.matches).length+' / '+result.items.length+' 条匹配</p><div class="file-list">'+(result.items.length?result.items.map(x=>'<div class="file-row"><span class="badge '+(x.matches?'':'paused')+'">'+(x.matches?'匹配':'忽略')+'</span><span>'+esc(x.item.title)+'</span></div>').join(''):empty('暂无资源','此订阅源还没有发布内容。'))+'</div>');
+  },e.target);
+  bindForm('#sub-form',async data=>{await api('/subscriptions','POST',{...s,...data});rememberDirectory(data.nodeId,data.directory);closeModal();toast('订阅已保存');if(state.page==='subscriptions')await subscriptions();});
 }

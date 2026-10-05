@@ -24,7 +24,7 @@ public static class DownloadEndpoints
             }
             return Results.Ok(results);
         });
-        api.MapPost("/tasks/upload", async (HttpRequest request, AriaRpc rpc, CancellationToken ct) =>
+        api.MapPost("/tasks/upload", async (HttpRequest request, AriaRpc rpc, DownloadPaths paths, CancellationToken ct) =>
         {
             var form = await request.ReadFormAsync(ct);
             var file = form.Files.GetFile("file") ?? throw new ArgumentException("请选择种子或 Metalink 文件");
@@ -36,7 +36,7 @@ public static class DownloadEndpoints
             var node = rpc.Node(form["nodeId"].FirstOrDefault());
             var options = new Dictionary<string, string>();
             var directory = form["directory"].FirstOrDefault();
-            if (string.IsNullOrWhiteSpace(directory)) directory = node.DownloadDirectory;
+            if (string.IsNullOrWhiteSpace(directory)) directory = await paths.Default(node.Id, ct);
             if (!string.IsNullOrWhiteSpace(directory)) options["dir"] = directory;
             var data = Convert.ToBase64String(memory.ToArray());
             var result = extension == ".torrent" ? await rpc.Call("addTorrent", [data, Array.Empty<string>(), options], node.Id, ct) : await rpc.Call("addMetalink", [data, options], node.Id, ct);

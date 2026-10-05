@@ -1,7 +1,7 @@
 import {$,esc,state,api,toast,run,modal,heading,empty,bytes} from './core.js';
 import {editSubscription} from './subscriptions.js';
 import {addTask} from './downloads.js';
-let cards=[];let search='';let day='全部';
+let cards=[];let search='';let day='全部';let badgeObserver;
 const weekdays=['星期一','星期二','星期三','星期四','星期五','星期六','星期日'];
 const dayOrder=value=>{const index=weekdays.indexOf(value);return index<0?7:index;};
 const orderedDays=items=>[...new Set(items.map(c=>c.day||'其他'))].sort((a,b)=>dayOrder(a)-dayOrder(b));
@@ -19,7 +19,30 @@ async function load(refresh){
 }
 function cardMarkup(c){
   const unpublished=c.hasReleases===false;
-  return '<button class="anime-card'+(unpublished?' unpublished':'')+'" '+(unpublished?'disabled aria-label="'+esc(c.name+'，暂无字幕组发布')+'"':'data-anime="'+esc(c.id)+'"')+'><div class="poster">'+(c.image?'<img loading="lazy" src="'+esc(c.image)+'" alt="'+esc(c.name)+'" referrerpolicy="no-referrer">':'')+'<span>'+esc(unpublished?'暂无字幕组发布':c.day||'连载中')+'</span></div><h3>'+esc(c.name)+'</h3><small>'+(unpublished?'等待字幕组发布':'查看字幕组与作品详情 →')+'</small></button>';
+  return '<button class="anime-card'+(unpublished?' unpublished':'')+'" '+(unpublished?'disabled aria-label="'+esc(c.name+'，暂无字幕组发布')+'"':'data-anime="'+esc(c.id)+'"')+'><div class="poster">'+(c.image?'<img loading="lazy" src="'+esc(c.image)+'" alt="'+esc(c.name)+'" referrerpolicy="no-referrer">':'')+'<span>'+esc(unpublished?'暂无字幕组发布':c.day||'连载中')+'</span><div class="anime-badges"></div><div class="anime-episode"></div></div><h3 title="'+esc(c.name)+'">'+esc(c.name)+'</h3></button>';
+}
+function badgeMarkup(b){
+  return (b.hot?'<b class="hot '+esc(b.hot)+'" title="'+b.groupCount+' 个字幕组">Hot</b>':'')+(b.updatedGroups?'<b class="updated" title="最近 24 小时更新的字幕组">'+b.updatedGroups+' 更新</b>':'');
+}
+function observeBadges(){
+  badgeObserver?.disconnect();
+  const current=cards;
+  badgeObserver=new IntersectionObserver(entries=>{
+    entries.filter(x=>x.isIntersecting).forEach(entry=>{
+      badgeObserver.unobserve(entry.target);
+      const card=current.find(c=>c.id===entry.target.dataset.anime);
+      if(!card)return;
+      const show=b=>{
+        if(!entry.target.isConnected||cards!==current)return;
+        entry.target.querySelector('.anime-badges').innerHTML=badgeMarkup(b);
+        entry.target.querySelector('.anime-episode').textContent=b.latestEpisode?'第 '+b.latestEpisode+' 集':'';
+      };
+      if(card.badges){show(card.badges);return;}
+      card.badgeRequest??=api('/anime/'+card.id+'/badges').then(b=>card.badges=b).finally(()=>card.badgeRequest=null);
+      card.badgeRequest.then(show).catch(()=>{if(entry.target.isConnected)entry.target.querySelector('.anime-badges').title='更新信息暂不可用';});
+    });
+  },{rootMargin:'100px'});
+  document.querySelectorAll('.anime-card[data-anime]').forEach(card=>badgeObserver.observe(card));
 }
 function render(){
   const matches=cards.filter(c=>(day==='全部'||(c.day||'其他')===day)&&c.name.toLowerCase().includes(search.toLowerCase()));
@@ -28,6 +51,7 @@ function render(){
     return '<section class="anime-day" aria-label="'+esc(d)+'"><div class="anime-day-heading"><h2>'+esc(d)+'</h2><span>'+items.length+' 部作品</span></div><div class="anime-grid">'+items.map(cardMarkup).join('')+'</div></section>';
   }).join(''):empty('没有找到相关作品','换个关键词，或选择其他季度试试看。','▦');
   $('#anime-results').querySelectorAll('[data-anime]').forEach(b=>b.onclick=()=>run(()=>detail(b.dataset.anime),b));
+  observeBadges();
 }
 async function detail(id){
   modal('番剧详情','<div class="loading">获取作品与字幕组…</div>');

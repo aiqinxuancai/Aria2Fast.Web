@@ -3,7 +3,7 @@ using Aria2Fast.Web.Models;
 
 namespace Aria2Fast.Web.Services;
 
-public sealed class SubscriptionService(StateStore store, FeedService feeds, AriaRpc rpc, AiService ai)
+public sealed class SubscriptionService(StateStore store, FeedService feeds, AriaRpc rpc, AiService ai, DownloadPaths paths)
 {
     private readonly SemaphoreSlim gate = new(1);
     public bool Checking { get; private set; }
@@ -30,12 +30,9 @@ public sealed class SubscriptionService(StateStore store, FeedService feeds, Ari
                         string? gid = null;
                         if (!skipped)
                         {
-                            var node = rpc.Node(subscription.NodeId);
-                            var directory = string.IsNullOrWhiteSpace(subscription.Directory) ? node.DownloadDirectory : subscription.Directory;
-                            if (string.IsNullOrWhiteSpace(directory) && node.Id == "local") directory = store.Read().Settings.DownloadDirectory;
-                            if (!string.IsNullOrWhiteSpace(subscription.NamePath)) directory = Join(directory, subscription.NamePath);
-                            if (subscription.AutoDir) directory = Join(directory, Validation.Segment(await ai.Send(item.Title, "从文件标题中提取作品名称。只输出名称，不含季度、集数、字幕组、说明或标点包裹。", ct)));
-                            if (subscription.Season > 0) directory = Join(directory, $"Season {subscription.Season}");
+                            var root = string.IsNullOrWhiteSpace(subscription.Directory) ? await paths.Default(subscription.NodeId, ct) : subscription.Directory;
+                            var aiName = subscription.AutoDir ? await ai.Send(item.Title, "从文件标题中提取作品名称。只输出名称，不含季度、集数、字幕组、说明或标点包裹。", ct) : null;
+                            var directory = DownloadPaths.Compose(root, subscription.NamePath, subscription.Season, aiName);
                             gid = await rpc.Add(item.Url, directory, subscription.NodeId, ct: ct);
                         }
                         var record = new SubscriptionEntry(item.Key, item.Title, item.Url, gid, DateTimeOffset.UtcNow, skipped);
@@ -64,5 +61,4 @@ public sealed class SubscriptionService(StateStore store, FeedService feeds, Ari
         finally { Checking = false; gate.Release(); }
     }
 
-    private static string Join(string root, string name) => string.IsNullOrWhiteSpace(root) ? name : root.TrimEnd('/', '\\') + "/" + name;
 }

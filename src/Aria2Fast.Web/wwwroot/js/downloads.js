@@ -1,3 +1,4 @@
+import {directoryField,bindDirectory,rememberDirectory} from './directory-picker.js';
 import {$,esc,state,api,bytes,nameOf,statusName,toast,run,modal,closeModal,heading,empty,field,check,bindForm,nodeOptions,reportResults} from './core.js';
 
 export async function downloads(){
@@ -51,12 +52,13 @@ async function action(action,gids){
 }
 
 export function addTask(initial=''){
-  modal('新建下载任务','<form id="add-form" class="stack"><label>下载链接 <span class="hint">每行一个，支持 HTTP / FTP / Magnet，最多 200 个</span><textarea name="urls" rows="6" placeholder="https://example.com/file.zip">'+esc(initial)+'</textarea></label><div class="form-grid"><label>下载节点<select name="nodeId">'+nodeOptions(state.config.selectedNodeId)+'</select></label>'+field('保存目录（节点上的路径）','directory','','text','placeholder="留空使用节点默认目录"')+'</div><label>或上传种子 / Metalink 文件<input name="file" type="file" accept=".torrent,.metalink,.meta4"></label><details><summary>高级参数</summary><div class="form-grid" style="margin-top:15px">'+field('下载限速（0 = 不限制）','limit','0')+field('连接数','connections',8,'number','min="1" max="16"')+field('Referer','referer')+field('输出文件名（单链接）','out')+'</div></details><div class="form-actions"><button type="submit" class="primary">开始下载 →</button></div></form>');
+  modal('新建下载任务','<form id="add-form" class="stack"><label>下载链接 <span class="hint">每行一个，支持 HTTP / FTP / Magnet，最多 200 个</span><textarea name="urls" rows="6" placeholder="https://example.com/file.zip">'+esc(initial)+'</textarea></label><div class="form-grid"><label>下载节点<select name="nodeId">'+nodeOptions(state.config.selectedNodeId)+'</select></label>'+directoryField('保存目录（节点上的路径）')+'</div><label>或上传种子 / Metalink 文件<input name="file" type="file" accept=".torrent,.metalink,.meta4"></label><details><summary>高级参数</summary><div class="form-grid" style="margin-top:15px">'+field('下载限速（0 = 不限制）','limit','0')+field('连接数','connections',8,'number','min="1" max="16"')+field('Referer','referer')+field('输出文件名（单链接）','out')+'</div></details><div class="form-actions"><button type="submit" class="primary">开始下载 →</button></div></form>');
+  bindDirectory($('#add-form'));
   bindForm('#add-form',async(data,form)=>{
     const file=form.elements.file.files[0];
     if(file){const body=new FormData();body.append('file',file);body.append('nodeId',data.nodeId);body.append('directory',data.directory);await api('/tasks/upload','POST',body);}
     else{const urls=data.urls.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);if(!urls.length)throw new Error('请填写下载链接或选择种子文件');const opts={'max-download-limit':data.limit,'max-connection-per-server':String(data.connections)};if(data.referer)opts.referer=data.referer;if(data.out&&urls.length===1)opts.out=data.out;const results=await api('/tasks','POST',{urls,directory:data.directory||null,nodeId:data.nodeId,options:opts});const failed=results.filter(x=>x.error);if(failed.length){form.elements.urls.value=failed.map(x=>x.url).join('\n');reportResults(failed);}}
-    closeModal();toast('任务已添加');if(state.page==='downloads')await refreshTasks();
+    rememberDirectory(data.nodeId,data.directory);closeModal();toast('任务已添加');if(state.page==='downloads')await refreshTasks();
   });
 }
 

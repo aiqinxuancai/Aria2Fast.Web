@@ -7,6 +7,7 @@ public static class AnimeEndpoints
     {
         api.MapGet("/anime", (int? year, string? season, bool? refresh, MikanService mikan, CancellationToken ct) => mikan.List(year, season, refresh ?? false, ct));
         api.MapGet("/anime/{id}", (string id, MikanService mikan, CancellationToken ct) => mikan.Detail(id, ct));
+        api.MapGet("/anime/{id}/badges", (string id, MikanService mikan, CancellationToken ct) => mikan.Badges(id, ct));
         api.MapPost("/anime/{id}/review", async (string id, MikanService mikan, AiService ai, CancellationToken ct) =>
         {
             var detail = await mikan.Detail(id, ct);

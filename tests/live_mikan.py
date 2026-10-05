@@ -28,12 +28,15 @@ def main():
         published = next(c for c in cards if c['hasReleases'])
         detail = api('/anime/' + published['id'])
         assert detail['name'] and detail['groups'], detail
+        badges = api('/anime/' + published['id'] + '/badges')
+        assert badges['groupCount'] == len(detail['groups']), badges
+        assert badges['latestEpisode'] >= 0 and badges['updatedGroups'] <= badges['groupCount']
         feed = api('/subscriptions/preview', 'POST', {'url': detail['groups'][0]['url'], 'filter': '', 'isFilterRegex': False})
         assert 'items' in feed, feed
         report.update(passed=True, calendarCount=len(cards), animeId=published['id'],
                       unpublishedCount=sum(not c['hasReleases'] for c in cards),
                       weekdays=list(dict.fromkeys(c['day'] for c in cards)),
-                      animeName=detail['name'], groupCount=len(detail['groups']), feedItemCount=len(feed['items']))
+                      animeName=detail['name'], groupCount=len(detail['groups']), feedItemCount=len(feed['items']), badges=badges)
     except Exception as error:
         report.update(passed=False, error=str(error))
         raise

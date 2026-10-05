@@ -18,6 +18,7 @@ builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Ad
 builder.Services.AddSingleton<StateStore>();
 builder.Services.AddSingleton<HttpGateway>();
 builder.Services.AddSingleton<AriaRpc>();
+builder.Services.AddSingleton<DownloadPaths>();
 builder.Services.AddSingleton<FeedService>();
 builder.Services.AddSingleton<AiService>();
 builder.Services.AddSingleton<MikanService>();

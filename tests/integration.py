@@ -13,6 +13,7 @@ import sys
 import tempfile
 import threading
 import time
+from datetime import datetime, timezone, timedelta
 from urllib import request, error, parse
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,7 +44,9 @@ class Fixtures(BaseHTTPRequestHandler):
             items = ''.join(f'<item><guid>episode-{i}</guid><title>测试作品 - {i:02d} [1080p]</title><enclosure url="{base}/file-{i}.bin" length="{len(PAYLOAD)}" /></item>' for i in range(1, FEED_VERSION + 1))
             return self.reply(f'<rss><channel><title>测试订阅</title>{items}</channel></rss>'.encode(), 'application/xml')
         if self.path.startswith('/Home/Bangumi/123'):
-            return self.reply(b'<html><h1>Fixture Anime</h1><p class="header2-desc">A sample description.</p><div class="subgroup-text"><a>Fixture Group</a><a class="mikan-rss" href="/RSS/123">RSS</a></div></html>', 'text/html')
+            date = (datetime.now(timezone(timedelta(hours=8))) - timedelta(hours=1)).strftime('%Y/%m/%d %H:%M')
+            groups = ''.join(f'<div class="subgroup-text"><a>Fixture Group</a><a class="mikan-rss" href="/RSS/123?group={i}">RSS</a></div><div class="episode-table"><table><tbody><tr><td></td><td><a class="magnet-link-wrap">Fixture - {i:02d}</a></td><td>1GB</td><td>{date}</td></tr></tbody></table></div>' for i in range(1, 8))
+            return self.reply(('<html><h1>Fixture Anime</h1><p class="header2-desc">A sample description.</p>' + groups + '</html>').encode(), 'text/html')
         if self.path.startswith(('/Home/BangumiCoverFlowByDayOfWeek', '/mikan')):
             return self.reply((ROOT / 'tests/fixtures/mikan-calendar.html').read_bytes(), 'text/html')
         if self.path.startswith('/poster.svg'):
@@ -109,7 +112,7 @@ class Fixtures(BaseHTTPRequestHandler):
             for task in TASKS.values():
                 task['status'] = 'paused' if method == 'pauseAll' else 'active'
         elif method in ['getGlobalOption', 'getOption']:
-            result = {'max-download-limit': '0', 'max-upload-limit': '0', 'max-concurrent-downloads': '5', 'seed-ratio': '0'}
+            result = {'dir': '/engine-default', 'max-download-limit': '0', 'max-upload-limit': '0', 'max-concurrent-downloads': '5', 'seed-ratio': '0'}
         elif method == 'getPeers':
             result = []
         self.reply({'jsonrpc': '2.0', 'id': body.get('id'), 'result': result})
@@ -246,9 +249,16 @@ def main():
             api('/tasks/action', 'POST', {'action': 'pause', 'gids': [gid], 'nodeId': node})
             assert api('/tasks/' + gid + '?node=fixture')['status'] == 'paused'
         assert 'stats' in api('/tasks?node=' + node)
+        directory = api('/nodes/' + node + '/directory')['directory']
+        assert directory, directory
+        if not args.real_aria:
+            api('/nodes', 'POST', {'id': 'engine-default', 'name': 'Engine default', 'url': fixture + '/jsonrpc', 'downloadDirectory': ''})
+            assert api('/nodes/engine-default/directory')['directory'] == '/engine-default'
         api('/options', 'POST', {'nodeId': node, 'options': {'on-download-complete': 'invalid'}}, expected=400)
         preview = api('/subscriptions/preview', 'POST', {'url': fixture + '/feed', 'filter': '1080p', 'isFilterRegex': False})
         assert preview['items'][0]['matches']
+        excluded = api('/subscriptions/preview', 'POST', {'url': fixture + '/feed', 'filter': '1080p', 'excludeFilter': '1080p', 'isFilterRegex': False})
+        assert not excluded['items'][0]['matches']
         sub = api('/subscriptions', 'POST', {'name': '测试番剧', 'url': fixture + '/feed', 'nodeId': node, 'skipExisting': True, 'filter': '1080p'})
         api('/subscriptions/check', 'POST', {'id': sub['id']})
         items = api('/subscriptions')[0]
@@ -264,6 +274,7 @@ def main():
         assert [c['hasReleases'] for c in calendar] == [True, False, False]
         assert calendar[2]['name'] == '周日待发布 & 新番'
         assert api('/anime/123')['groups'][0]['name'] == 'Fixture Group'
+        assert api('/anime/123/badges') == {'groupCount': 7, 'updatedGroups': 7, 'latestEpisode': 7, 'hot': 'purple'}
         for protocol in ['OpenAIChatCompletions', 'OpenAIResponses', 'Claude', 'Gemini']:
             config = api('/state')['settings']
             config['aiProfiles'] = [{'id': 'test-ai', 'name': protocol, 'protocol': protocol, 'baseUrl': fixture, 'modelName': 'test', 'apiKey': 'test'}]

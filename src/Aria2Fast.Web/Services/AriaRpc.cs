@@ -42,7 +42,7 @@ public sealed class AriaRpc(StateStore store, HttpGateway http)
         if (!Uri.TryCreate(uri, UriKind.Absolute, out var parsed) || parsed.Scheme is not ("http" or "https" or "ftp" or "magnet")) throw new ArgumentException("不支持的下载链接");
         var node = Node(nodeId);
         options ??= [];
-        var dir = directory ?? (node.Id == "local" ? store.Read().Settings.DownloadDirectory : node.DownloadDirectory);
+        var dir = string.IsNullOrWhiteSpace(directory) ? (node.Id == "local" ? store.Read().Settings.DownloadDirectory : node.DownloadDirectory) : directory;
         if (!string.IsNullOrWhiteSpace(dir)) options["dir"] = dir;
         var gid = (await Call("addUri", [new[] { uri }, options], node.Id, ct)).ToString();
         Track(node.Id, gid, uri);
