@@ -13,6 +13,7 @@ public sealed class AppState
     public List<Notice> Notices { get; set; } = [];
     public Dictionary<string, AiReview> Reviews { get; set; } = [];
     public Dictionary<string, string> Translations { get; set; } = [];
+    public TrackerCache Trackers { get; set; } = new();
     public string PasswordHash { get; set; } = "";
 }
 
@@ -21,6 +22,11 @@ public sealed class WebSettings
     public bool LocalEnabled { get; set; } = true;
     public string Aria2Executable { get; set; } = "";
     public int LocalRpcPort { get; set; } = 6800;
+    public int LocalBtPort { get; set; } = 6888;
+    public int LocalDhtPort { get; set; } = 6888;
+    public bool TrackerAutoUpdate { get; set; }
+    public string TrackerSources { get; set; } = "https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt";
+    public int TrackerUpdateHours { get; set; } = 24;
     public string DownloadDirectory { get; set; } = "";
     public int SubscriptionIntervalMinutes { get; set; } = 15;
     public string MikanBaseUrl { get; set; } = "https://mikanime.tv";
@@ -73,4 +79,12 @@ public sealed record AiReview(double? Score, string Review, DateTimeOffset Creat
 public sealed record DownloadRecord(string NodeId, string Gid, string Name, DateTimeOffset AddedAt)
 {
     public bool Notified { get; set; }
+}
+
+public sealed class TrackerCache
+{
+    public List<string> Urls { get; set; } = [];
+    public DateTimeOffset? LastAttempt { get; set; }
+    public DateTimeOffset? LastSuccess { get; set; }
+    public string? Error { get; set; }
 }

@@ -52,12 +52,12 @@ async function action(action,gids){
 }
 
 export function addTask(initial=''){
-  modal('新建下载任务','<form id="add-form" class="stack"><label>下载链接 <span class="hint">每行一个，支持 HTTP / FTP / Magnet，最多 200 个</span><textarea name="urls" rows="6" placeholder="https://example.com/file.zip">'+esc(initial)+'</textarea></label><div class="form-grid"><label>下载节点<select name="nodeId">'+nodeOptions(state.config.selectedNodeId)+'</select></label>'+directoryField('保存目录（节点上的路径）')+'</div><label>或上传种子 / Metalink 文件<input name="file" type="file" accept=".torrent,.metalink,.meta4"></label><details><summary>高级参数</summary><div class="form-grid" style="margin-top:15px">'+field('下载限速（0 = 不限制）','limit','0')+field('连接数','connections',8,'number','min="1" max="16"')+field('Referer','referer')+field('输出文件名（单链接）','out')+'</div></details><div class="form-actions"><button type="submit" class="primary">开始下载 →</button></div></form>');
+  modal('新建下载任务','<form id="add-form" class="stack"><label>下载链接 <span class="hint">每行一个，支持 HTTP / FTP / Magnet，最多 200 个</span><textarea name="urls" rows="6" placeholder="https://example.com/file.zip">'+esc(initial)+'</textarea></label><div class="form-grid"><label>下载节点<select name="nodeId">'+nodeOptions(state.config.selectedNodeId)+'</select></label>'+directoryField('保存目录（节点上的路径）')+'</div><label>或上传种子 / Metalink 文件<input name="file" type="file" accept=".torrent,.metalink,.meta4"></label><details><summary>高级参数</summary><div class="form-grid" style="margin-top:15px">'+field('下载限速（0 = 不限制）','limit','0')+field('HTTP 单服务器连接数','connections','','number','min="1" max="16" placeholder="使用节点默认值"')+field('Referer','referer')+field('输出文件名（单链接）','out')+'</div></details><div class="form-actions"><button type="submit" class="primary">开始下载 →</button></div></form>');
   bindDirectory($('#add-form'));
   bindForm('#add-form',async(data,form)=>{
     const file=form.elements.file.files[0];
     if(file){const body=new FormData();body.append('file',file);body.append('nodeId',data.nodeId);body.append('directory',data.directory);await api('/tasks/upload','POST',body);}
-    else{const urls=data.urls.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);if(!urls.length)throw new Error('请填写下载链接或选择种子文件');const opts={'max-download-limit':data.limit,'max-connection-per-server':String(data.connections)};if(data.referer)opts.referer=data.referer;if(data.out&&urls.length===1)opts.out=data.out;const results=await api('/tasks','POST',{urls,directory:data.directory||null,nodeId:data.nodeId,options:opts});const failed=results.filter(x=>x.error);if(failed.length){form.elements.urls.value=failed.map(x=>x.url).join('\n');reportResults(failed);}}
+    else{const urls=data.urls.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);if(!urls.length)throw new Error('请填写下载链接或选择种子文件');const opts={'max-download-limit':data.limit};if(data.connections)opts['max-connection-per-server']=String(data.connections);if(data.referer)opts.referer=data.referer;if(data.out&&urls.length===1)opts.out=data.out;const results=await api('/tasks','POST',{urls,directory:data.directory||null,nodeId:data.nodeId,options:opts});const failed=results.filter(x=>x.error);if(failed.length){form.elements.urls.value=failed.map(x=>x.url).join('\n');reportResults(failed);}}
     rememberDirectory(data.nodeId,data.directory);closeModal();toast('任务已添加');if(state.page==='downloads')await refreshTasks();
   });
 }
@@ -73,7 +73,8 @@ async function detail(gid){
 
 async function options(gid=null){
   const node=state.config.selectedNodeId;const config=await api('/options?node='+encodeURIComponent(node)+(gid?'&gid='+gid:''));
+  if(!gid&&node==='local')config['bt-tracker']=state.config.settings.localOptions?.['bt-tracker']||'';
   const fields=gid?[['max-download-limit','下载限速'],['max-upload-limit','上传限速'],['split','分片数'],['seed-ratio','分享率']]:[['max-download-limit','下载限速'],['max-upload-limit','上传限速'],['max-concurrent-downloads','同时下载数'],['seed-ratio','分享率']];
-  modal(gid?'任务参数':'全局下载参数','<form id="options-form"><p class="hint">限速支持 K / M，0 表示不限速。参数即时应用到当前节点。</p><div class="form-grid">'+fields.map(([key,label])=>field(label,key,config[key]||'0')).join('')+'<label class="full">BT Trackers（逗号分隔）<textarea name="bt-tracker" rows="4">'+esc(config['bt-tracker']||'')+'</textarea></label></div><div class="form-actions"><button type="submit" class="primary">保存参数</button></div></form>');
+  modal(gid?'任务参数':'全局下载参数','<form id="options-form"><p class="hint">限速支持 K / M，0 表示不限速。参数即时应用到当前节点。</p><div class="form-grid">'+fields.map(([key,label])=>field(label,key,config[key]||'0')).join('')+'<label class="full">手动追加 BT Trackers（逗号分隔）<textarea name="bt-tracker" rows="4">'+esc(config['bt-tracker']||'')+'</textarea></label></div><div class="form-actions"><button type="submit" class="primary">保存参数</button></div></form>');
   bindForm('#options-form',async(data)=>{await api('/options','POST',{nodeId:node,gid,options:data});closeModal();toast('参数已生效');});
 }

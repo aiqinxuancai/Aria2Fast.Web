@@ -19,7 +19,7 @@ async function load(refresh){
 }
 function cardMarkup(c){
   const unpublished=c.hasReleases===false;
-  return '<button class="anime-card'+(unpublished?' unpublished':'')+'" '+(unpublished?'disabled aria-label="'+esc(c.name+'，暂无字幕组发布')+'"':'data-anime="'+esc(c.id)+'"')+'><div class="poster">'+(c.image?'<img loading="lazy" src="'+esc(c.image)+'" alt="'+esc(c.name)+'" referrerpolicy="no-referrer">':'')+'<span>'+esc(unpublished?'暂无字幕组发布':c.day||'连载中')+'</span><div class="anime-badges"></div><div class="anime-episode"></div></div><h3 title="'+esc(c.name)+'">'+esc(c.name)+'</h3></button>';
+  return '<button class="anime-card'+(unpublished?' unpublished':'')+'" '+(unpublished?'disabled aria-label="'+esc(c.name+'，暂无字幕组发布')+'"':'data-anime="'+esc(c.id)+'"')+'><div class="poster">'+(c.image?'<img loading="lazy" src="'+esc(c.image)+'" alt="'+esc(c.name)+'" referrerpolicy="no-referrer">':'')+(unpublished?'<span>暂无字幕组发布</span>':'')+'<div class="anime-badges"></div><div class="anime-episode"></div></div><h3 title="'+esc(c.name)+'">'+esc(c.name)+'</h3></button>';
 }
 function badgeMarkup(b){
   return (b.hot?'<b class="hot '+esc(b.hot)+'" title="'+b.groupCount+' 个字幕组">Hot</b>':'')+(b.updatedGroups?'<b class="updated" title="最近 24 小时更新的字幕组">'+b.updatedGroups+' 更新</b>':'');

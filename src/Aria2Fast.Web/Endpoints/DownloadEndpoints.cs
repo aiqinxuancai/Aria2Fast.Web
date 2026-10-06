@@ -6,7 +6,7 @@ namespace Aria2Fast.Web.Endpoints;
 
 public static class DownloadEndpoints
 {
-    private static readonly HashSet<string> AllowedOptions = ["max-download-limit", "max-upload-limit", "max-concurrent-downloads", "split", "max-connection-per-server", "seed-ratio", "seed-time", "bt-tracker", "select-file", "out", "dir", "header", "referer", "user-agent", "all-proxy", "pause"];
+    private static readonly HashSet<string> AllowedOptions = ["max-download-limit", "max-upload-limit", "max-overall-download-limit", "max-overall-upload-limit", "min-split-size", "bt-max-peers", "max-concurrent-downloads", "split", "max-connection-per-server", "seed-ratio", "seed-time", "bt-tracker", "select-file", "out", "dir", "header", "referer", "user-agent", "all-proxy", "pause"];
     public static void MapDownloads(this RouteGroupBuilder api)
     {
         api.MapGet("/tasks", (string? node, AriaRpc rpc, CancellationToken ct) => rpc.Snapshot(node, ct));
@@ -62,7 +62,20 @@ public static class DownloadEndpoints
         {
             ValidateOptions(input.Options);
             var node = rpc.Node(input.NodeId);
-            var result = await rpc.Call(input.Gid == null ? "changeGlobalOption" : "changeOption", input.Gid == null ? [input.Options] : [input.Gid, input.Options], node.Id, ct);
+            if (node.Id == "local" && input.Gid == null)
+            {
+                var settings = store.Read().Settings;
+                foreach (var pair in input.Options) settings.LocalOptions[pair.Key] = pair.Value;
+                LocalAriaOptions.Validate(settings);
+            }
+            var effective = new Dictionary<string, string>(input.Options);
+            if (node.Id == "local" && input.Gid == null && effective.ContainsKey("bt-tracker"))
+            {
+                var snapshot = store.Read();
+                snapshot.Settings.LocalOptions["bt-tracker"] = effective["bt-tracker"];
+                effective["bt-tracker"] = LocalAriaOptions.Trackers(snapshot);
+            }
+            var result = await rpc.Call(input.Gid == null ? "changeGlobalOption" : "changeOption", input.Gid == null ? [effective] : [input.Gid, effective], node.Id, ct);
             if (node.Id == "local" && input.Gid == null)
                 store.Update(s => { foreach (var entry in input.Options) s.Settings.LocalOptions[entry.Key] = entry.Value; });
             return result;

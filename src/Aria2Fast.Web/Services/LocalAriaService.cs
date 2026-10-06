@@ -8,6 +8,8 @@ public sealed class LocalAriaService(StateStore store, ILogger<LocalAriaService>
 {
     private Process? process;
     private readonly SemaphoreSlim gate = new(1);
+    public string? AppliedStartupOptions { get; private set; }
+    public static string StartupSignature(Aria2Fast.Web.Models.WebSettings settings) => System.Text.Json.JsonSerializer.Serialize(new { settings.LocalRpcPort, settings.LocalBtPort, settings.LocalDhtPort, settings.DownloadDirectory, settings.Aria2Executable, settings.LocalOptions, settings.TrackerAutoUpdate });
     public string? Error { get; private set; }
     public bool Running => process is { HasExited: false };
 
@@ -18,7 +20,9 @@ public sealed class LocalAriaService(StateStore store, ILogger<LocalAriaService>
         try
         {
             await StopAsync(ct);
-            var settings = store.Read().Settings;
+            var state = store.Read();
+            var settings = state.Settings;
+            LocalAriaOptions.Validate(settings);
             Error = null;
             if (!settings.LocalEnabled) return;
             var executable = settings.Aria2Executable;
@@ -32,7 +36,7 @@ public sealed class LocalAriaService(StateStore store, ILogger<LocalAriaService>
             if (!File.Exists(session)) File.WriteAllText(session, "");
             Directory.CreateDirectory(settings.DownloadDirectory);
             var config = Path.Combine(store.DataDirectory, "aria2.conf");
-            File.WriteAllLines(config, ["enable-rpc=true", "rpc-listen-all=false", "rpc-allow-origin-all=false", $"rpc-listen-port={settings.LocalRpcPort}", $"rpc-secret={secret}", $"dir={settings.DownloadDirectory}", $"input-file={session}", $"save-session={session}", "save-session-interval=30", "continue=true", "max-concurrent-downloads=5", "max-connection-per-server=8", "split=8", "seed-time=0", "bt-save-metadata=true", "follow-torrent=true", "check-certificate=true", "summary-interval=0", "console-log-level=warn", $"dht-file-path={Path.Combine(store.DataDirectory, "dht.dat")}", $"dht-file-path6={Path.Combine(store.DataDirectory, "dht6.dat")}"]);
+            File.WriteAllLines(config, ["enable-rpc=true", "rpc-listen-all=false", "rpc-allow-origin-all=false", $"rpc-listen-port={settings.LocalRpcPort}", $"rpc-secret={secret}", $"dir={settings.DownloadDirectory}", $"input-file={session}", $"save-session={session}", "save-session-interval=30", "continue=true", "seed-time=0", "bt-save-metadata=true", "follow-torrent=true", "check-certificate=true", "summary-interval=0", "console-log-level=warn", $"dht-file-path={Path.Combine(store.DataDirectory, "dht.dat")}", $"dht-file-path6={Path.Combine(store.DataDirectory, "dht6.dat")}"]);
             if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(config, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             store.Update(s =>
             {
@@ -45,12 +49,13 @@ public sealed class LocalAriaService(StateStore store, ILogger<LocalAriaService>
             start.ArgumentList.Add("--conf-path=" + config);
             start.ArgumentList.Add("--rpc-save-upload-metadata=true");
             start.ArgumentList.Add("--stop-with-process=" + Environment.ProcessId);
-            foreach (var (key, value) in settings.LocalOptions)
+            foreach (var (key, value) in LocalAriaOptions.Effective(state))
                 start.ArgumentList.Add("--" + key + "=" + value);
             process = new Process { StartInfo = start };
             process.ErrorDataReceived += (_, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) logger.LogWarning("aria2: {Message}", e.Data); };
             process.OutputDataReceived += (_, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) logger.LogInformation("aria2: {Message}", e.Data); };
             process.Start();
+            AppliedStartupOptions = StartupSignature(settings);
             process.BeginErrorReadLine();
             process.BeginOutputReadLine();
             await Task.Delay(400, ct);

@@ -24,6 +24,27 @@ Test("HTTP URL excludes userinfo and file scheme", () => { Throws<ArgumentExcept
 Test("AI JSON strips fences", () => Assert(AiService.CleanJson("before\n" + '{' + "\"score\":8}" + "\nafter") == "{\"score\":8}"));
 Test("AI protocol custom version", () => Assert(AiProtocol.BuildRequestUrl(AiProtocolType.OpenAIChatCompletions, "https://example.com/v1", "test") == "https://example.com/v1/chat/completions"));
 
+Test("Tracker parser rejects unsupported and malformed entries and deduplicates", () =>
+{
+    var urls = TrackerService.Parse("udp://tracker.example:6969/announce\nhttps://tracker.example/a\nudp://tracker.example:6969/announce\nfile:///tmp/test\nwss://tracker.example\nhttps://user:password@example.com/a\n<html>error</html>\nhttps://example.com/a,b");
+    Assert(urls.SequenceEqual(new[] { "udp://tracker.example:6969/announce", "https://tracker.example/a" }));
+    Assert(TrackerService.Parse(string.Join('\n', Enumerable.Range(0, 200).Select(i => $"https://tracker{i}.example/announce"))).Count == 100);
+});
+Test("Local tuning preserves overrides and gates automatic trackers", () =>
+{
+    var state = new Aria2Fast.Web.Models.AppState();
+    state.Settings.LocalOptions["split"] = "16";
+    state.Settings.LocalOptions["bt-tracker"] = "https://manual.example/announce";
+    state.Trackers.Urls = ["https://auto.example/announce"];
+    Assert(LocalAriaOptions.Effective(state)["split"] == "16");
+    Assert(!LocalAriaOptions.Trackers(state).Contains("auto.example"));
+    state.Settings.TrackerAutoUpdate = true;
+    Assert(LocalAriaOptions.Trackers(state).Contains("auto.example"));
+    LocalAriaOptions.Validate(state.Settings);
+    state.Settings.LocalOptions["split"] = "999";
+    Throws<ArgumentException>(() => LocalAriaOptions.Validate(state.Settings));
+});
+
 var temporary = Path.Combine(Path.GetTempPath(), "aria2fast-tests-" + Guid.NewGuid().ToString("N"));
 Test("Subscription paths match default, sanitized name, AI and season order", () =>
 {

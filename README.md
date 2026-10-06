@@ -16,7 +16,7 @@
 
 ## Docker
 
-复制 .env.example 为 .env，填写 ARIA2FAST_PASSWORD，然后执行 docker compose pull 和 docker compose up -d。默认 compose.yaml 仅拉取 GHCR 镜像，可直接用于 Unraid Compose Manager，无需源码或 Dockerfile。镜像内安装真实 aria2 执行文件，以非 root 用户运行，只公开 Web 8080 端口；RPC 保持容器内部监听。
+复制 .env.example 为 .env，填写 ARIA2FAST_PASSWORD，然后执行 docker compose pull 和 docker compose up -d。默认 compose.yaml 仅拉取 GHCR 镜像，可直接用于 Unraid Compose Manager，无需源码或 Dockerfile。镜像内安装真实 aria2 执行文件，以非 root 用户运行，公开 Web 8080、BT TCP 6888 和 DHT UDP 6888 端口；RPC 保持容器内部监听。
 
 使用 GHCR：将 .env 中 ARIA2FAST_IMAGE 设置为 ghcr.io/你的组织或用户名/仓库名:v1.0.0（仓库名须小写），执行 docker compose pull，然后 docker compose up -d --no-build。
 
@@ -46,6 +46,14 @@
 - 手机底部导航、响应式布局、浅色/深色/跟随系统并实时响应系统变化。
 
 具体迁移差异和测试范围见 docs/FEATURES.md。图片、评分、下载记录均来自实际接口；无数据时显示空状态。
+
+## 本地下载调优
+
+设置中心 → 下载设置提供 BT TCP / DHT UDP 端口、HTTP 连接与分片、BT 连接上限、总上传/下载限速、DHT 和 PEX。保存后在节点管理中重启本地服务，配置会随应用数据持久化；不要手动编辑启动时生成的 aria2.conf。默认同时下载 3 个任务、HTTP 8 连接 / 8 分片、BT 最多 128 个连接；已经保存的全局参数优先。
+
+公共 Tracker 自动更新默认关闭。仅下载公共 BT 时，可开启并点击“保存并更新 Tracker”，默认每天从 ngosang/trackerslist 的精选列表更新。支持最多 5 个列表来源，接受 HTTP / HTTPS / UDP Tracker，去重并最多保留 100 个。下载列表使用设置中的网络代理；失败保留上次有效缓存，并在一小时后重试。手动 Tracker 与自动列表合并，原种子 Tracker 不会被删除。更新用于后续新任务，已有任务不自动修改；关闭此功能后请重启本地服务。PT 私有种子不要开启公共 Tracker 功能。
+
+“连接诊断”显示 RPC、实际参数、本机监听端口、Tracker 更新状态，以及活跃 BT 任务连接数、做种连接数和下载速度。它不进行公网探测，不能据本机监听判断外部可达。Docker 默认映射 6888 TCP / UDP；修改设置中的端口时，请同步修改 compose.yaml 的映射，并按网络环境配置路由器与防火墙。HTTP 增加分片对 BT 无效，无人做种的资源无法靠参数保证提速。
 
 ## Windows / macOS 发行包
 

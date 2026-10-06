@@ -37,6 +37,7 @@ jobs:
           TEST_PUBLISH_DIR: ${{ github.workspace }}/artifacts/ci-publish
         run: |
           python tests/integration.py --real-aria
+          python tests/local_tuning.py
           python tests/real_downloads.py
           node tests/browser/real.cjs
       - uses: actions/upload-artifact@v4

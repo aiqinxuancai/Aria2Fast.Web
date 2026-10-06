@@ -11,7 +11,7 @@ public static class ConfigurationEndpoints
         api.MapGet("/state", (StateStore store, LocalAriaService local, SubscriptionService subs) =>
         {
             var s = store.Read();
-            return new { s.Nodes, s.SelectedNodeId, s.Settings, s.Notices, local = new { local.Running, local.Error }, checking = subs.Checking };
+            return new { s.Nodes, s.SelectedNodeId, s.Settings, s.Notices, local = new { local.Running, local.Error }, trackers = s.Trackers, checking = subs.Checking };
         });
         api.MapPut("/settings", (WebSettings input, StateStore store) =>
         {
@@ -28,9 +28,19 @@ public static class ConfigurationEndpoints
             if (string.IsNullOrWhiteSpace(input.DownloadDirectory) || input.DownloadDirectory.Contains('\n') || input.DownloadDirectory.Contains('\r')) throw new ArgumentException("下载目录无效");
             input.DownloadDirectory = Path.GetFullPath(input.DownloadDirectory);
             foreach (var profile in input.AiProfiles) { Validation.HttpUrl(profile.BaseUrl); if (string.IsNullOrWhiteSpace(profile.ModelName)) throw new ArgumentException("模型名称不能为空"); }
-            store.Update(s => { input.LocalOptions = s.Settings.LocalOptions; s.Settings = input; });
+            var tuning = input.LocalOptions.Where(x => LocalAriaOptions.Defaults.ContainsKey(x.Key)).ToDictionary();
+            input.LocalOptions = tuning;
+            LocalAriaOptions.Validate(input);
+            store.Update(s =>
+            {
+                input.LocalOptions = new(s.Settings.LocalOptions);
+                foreach (var pair in tuning) input.LocalOptions[pair.Key] = pair.Value;
+                s.Settings = input;
+            });
             return Results.Ok(new { ok = true });
         });
+        api.MapGet("/local/diagnostics", (LocalDiagnostics diagnostics, CancellationToken ct) => diagnostics.Inspect(ct));
+        api.MapPost("/local/trackers/update", (TrackerService trackers, CancellationToken ct) => trackers.Update(ct));
         api.MapPost("/local/restart", async (LocalAriaService local, CancellationToken ct) => { await local.Restart(ct); return new { local.Running, local.Error }; });
         api.MapPost("/nodes", (AriaNode node, StateStore store) =>
         {

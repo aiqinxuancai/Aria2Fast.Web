@@ -18,7 +18,7 @@ ENV ASPNETCORE_URLS=http://0.0.0.0:8080 \
     ARIA2FAST_DOWNLOAD_DIR=/downloads \
     DOTNET_EnableDiagnostics=0
 USER app
-EXPOSE 8080
+EXPOSE 8080 6888/tcp 6888/udp
 VOLUME ["/data", "/downloads"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD curl --fail --silent http://127.0.0.1:8080/healthz || exit 1
 ENTRYPOINT ["/usr/bin/tini", "--", "dotnet", "Aria2Fast.Web.dll"]

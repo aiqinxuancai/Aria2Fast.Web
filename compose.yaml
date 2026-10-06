@@ -4,6 +4,9 @@ services:
     restart: unless-stopped
     ports:
       - "${ARIA2FAST_PORT:-8080}:8080"
+      # Match these container ports to the BT / DHT ports in Settings.
+      - "6888:6888/tcp"
+      - "6888:6888/udp"
     environment:
       TZ: Asia/Shanghai
       ARIA2FAST_PASSWORD: ${ARIA2FAST_PASSWORD:-}

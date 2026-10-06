@@ -38,6 +38,10 @@ class Fixtures(BaseHTTPRequestHandler):
 
     def do_GET(self):
         base = f'http://127.0.0.1:{self.server.server_port}'
+        if self.path == '/trackers':
+            return self.reply(b'udp://tracker.example:6969/announce\n\nhttps://tracker.example/announce\nudp://tracker.example:6969/announce\ninvalid\n', 'text/plain')
+        if self.path == '/empty-trackers':
+            return self.reply(b'<html>not a tracker list</html>', 'text/html')
         if self.path.startswith('/file'):
             return self.reply(PAYLOAD, 'application/octet-stream')
         if self.path.startswith(('/feed', '/RSS')):
