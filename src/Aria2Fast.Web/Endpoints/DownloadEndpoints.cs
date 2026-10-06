@@ -9,6 +9,44 @@ public static class DownloadEndpoints
     private static readonly HashSet<string> AllowedOptions = ["max-download-limit", "max-upload-limit", "max-overall-download-limit", "max-overall-upload-limit", "min-split-size", "bt-max-peers", "max-concurrent-downloads", "split", "max-connection-per-server", "seed-ratio", "seed-time", "bt-tracker", "select-file", "out", "dir", "header", "referer", "user-agent", "all-proxy", "pause"];
     public static void MapDownloads(this RouteGroupBuilder api)
     {
+        api.MapPost("/tasks/remove-by-status", async (RemoveStatusesRequest input, AriaRpc rpc, CancellationToken ct) =>
+        {
+            var allowed = new[] { "complete", "error", "removed", "paused", "waiting", "active" };
+            if (input.Statuses is null || input.Statuses.Length == 0 || input.Statuses.Any(s => !allowed.Contains(s)))
+                throw new ArgumentException("请选择有效的任务状态");
+            var node = rpc.Node(input.NodeId).Id;
+            var tasks = new List<JsonNode>();
+            if (input.Statuses.Contains("active"))
+                tasks.AddRange((await rpc.Call("tellActive", nodeId: node, ct: ct)).AsArray().OfType<JsonNode>());
+            foreach (var method in new[] { "tellWaiting", "tellStopped" })
+            {
+                if (method == "tellWaiting" && !input.Statuses.Any(s => s is "paused" or "waiting")) continue;
+                if (method == "tellStopped" && !input.Statuses.Any(s => s is "complete" or "error" or "removed")) continue;
+                for (var offset = 0; ; offset += 1000)
+                {
+                    var page = (await rpc.Call(method, [offset, 1000], node, ct)).AsArray();
+                    tasks.AddRange(page.OfType<JsonNode>());
+                    if (page.Count < 1000) break;
+                }
+            }
+            var results = new List<object>();
+            foreach (var task in tasks.Where(t => input.Statuses.Contains(t["status"]?.ToString())).DistinctBy(t => t["gid"]?.ToString()))
+            {
+                var gid = task["gid"]!.ToString();
+                try
+                {
+                    var current = await rpc.Call("tellStatus", [gid], node, ct);
+                    var status = current["status"]?.ToString();
+                    if (!input.Statuses.Contains(status)) { results.Add(new { gid, removed = false, error = (string?)null }); continue; }
+                    if (status is "active" or "waiting" or "paused") await rpc.Call("remove", [gid], node, ct);
+                    await rpc.Call("removeDownloadResult", [gid], node, ct);
+                    results.Add(new { gid, removed = true, error = (string?)null });
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                { results.Add(new { gid, removed = false, error = ex.Message }); }
+            }
+            return Results.Ok(results);
+        });
         api.MapGet("/tasks", (string? node, AriaRpc rpc, CancellationToken ct) => rpc.Snapshot(node, ct));
         api.MapGet("/tasks/{gid}", (string gid, string? node, AriaRpc rpc, CancellationToken ct) => rpc.Call("tellStatus", [gid], node, ct));
         api.MapGet("/tasks/{gid}/peers", (string gid, string? node, AriaRpc rpc, CancellationToken ct) => rpc.Call("getPeers", [gid], node, ct));
@@ -86,6 +124,7 @@ public static class DownloadEndpoints
         if (options != null && options.Any(x => !AllowedOptions.Contains(x.Key) || x.Value.Length > 16000)) throw new ArgumentException("包含不支持的 Aria2 参数");
     }
     public sealed record AddRequest(string[] Urls, string? Directory, string? NodeId, Dictionary<string, string>? Options);
+    public sealed record RemoveStatusesRequest(string[] Statuses, string? NodeId);
     public sealed record ActionRequest(string Action, string[] Gids, string? NodeId);
     public sealed record OptionsRequest(string? NodeId, string? Gid, Dictionary<string, string> Options);
     public sealed record PositionRequest(string? NodeId, int Position);

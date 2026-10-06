@@ -4,12 +4,13 @@ import {$,esc,state,api,bytes,nameOf,statusName,toast,run,modal,closeModal,headi
 export async function downloads(){
   $('#content').innerHTML=heading('下载任务','让每一份期待，有条不紊地抵达。','<button id="refresh-tasks">↻ 刷新</button>')+
     '<div class="stats"><div class="stat featured"><label>下载速度 <span>↙</span></label><strong id="stat-down">—</strong><small>当前节点实时速率</small></div><div class="stat"><label>上传速度 <span>↗</span></label><strong id="stat-up">—</strong><small>分享，也是一种连接</small></div><div class="stat"><label>进行中的任务 <span>↓</span></label><strong id="stat-active">—</strong><small id="stat-waiting">等待同步节点</small></div><div class="stat"><label>已完成任务 <span>✓</span></label><strong id="stat-complete">—</strong><small>本节点的已完成记录</small></div></div><div id="rpc-error"></div>'+
-    '<section class="panel"><div class="panel-head"><div class="tabs" id="task-tabs">'+[['all','全部任务'],['active','下载中'],['waiting','等待'],['paused','暂停'],['complete','完成'],['error','失败']].map(([id,title])=>'<button data-filter="'+id+'" class="'+(state.filter===id?'active':'')+'">'+title+'</button>').join('')+'</div><input id="task-search" class="search" type="search" placeholder="搜索任务名称…" aria-label="搜索任务" value="'+esc(state.search)+'"></div><div class="panel-head"><div class="toolbar"><button data-bulk="resume">▶ 继续所选</button><button data-bulk="pause">Ⅱ 暂停所选</button><button data-bulk="remove" class="danger">移除所选</button></div><div class="toolbar"><button data-global="pauseAll">全部暂停</button><button data-global="resumeAll">全部继续</button><button id="global-options">下载设置</button><button data-global="purge">清理记录</button></div></div><div id="task-list"><div class="loading">连接 Aria2…</div></div></section><div class="callout">文件保存在下载节点所在设备。手机可以管理所有节点，也可以取回本地节点中已完成的文件。</div>';
+    '<section class="panel"><div class="panel-head"><div class="tabs" id="task-tabs">'+[['all','全部任务'],['active','下载中'],['waiting','等待'],['paused','暂停'],['complete','完成'],['error','失败']].map(([id,title])=>'<button data-filter="'+id+'" class="'+(state.filter===id?'active':'')+'">'+title+'</button>').join('')+'</div><input id="task-search" class="search" type="search" placeholder="搜索任务名称…" aria-label="搜索任务" value="'+esc(state.search)+'"></div><div class="panel-head"><div class="toolbar"><button data-bulk="resume">▶ 继续所选</button><button data-bulk="pause">Ⅱ 暂停所选</button><button data-bulk="remove" class="danger">移除所选</button></div><div class="toolbar"><button data-global="pauseAll">全部暂停</button><button data-global="resumeAll">全部继续</button><button id="global-options">下载设置</button><button id="remove-by-status">按状态移除…</button></div></div><div id="task-list"><div class="loading">连接 Aria2…</div></div></section><div class="callout">文件保存在下载节点所在设备。手机可以管理所有节点，也可以取回本地节点中已完成的文件。</div>';
   $('#refresh-tasks').onclick=()=>run(refreshTasks);
   $('#task-tabs').onclick=e=>{const button=e.target.closest('[data-filter]');if(button){state.filter=button.dataset.filter;$('#task-tabs').querySelectorAll('button').forEach(x=>x.classList.toggle('active',x===button));renderList();}};
   $('#task-search').oninput=e=>{state.search=e.target.value;renderList();};
   document.querySelectorAll('[data-bulk]').forEach(b=>b.onclick=()=>run(()=>action(b.dataset.bulk,[...state.selected]),b));
   document.querySelectorAll('[data-global]').forEach(b=>b.onclick=()=>run(()=>action(b.dataset.global,[]),b));
+  $('#remove-by-status').onclick=removeByStatus;
   $('#global-options').onclick=()=>run(()=>options());
   await refreshTasks();
 }
@@ -37,6 +38,27 @@ function renderList(){
   $('#task-list').querySelectorAll('[data-select]').forEach(x=>x.onchange=()=>x.checked?state.selected.add(x.dataset.select):state.selected.delete(x.dataset.select));
   $('#task-list').querySelectorAll('[data-detail]').forEach(x=>x.onclick=()=>run(()=>detail(x.dataset.detail)));
   $('#task-list').querySelectorAll('[data-action]').forEach(x=>x.onclick=()=>run(()=>action(x.dataset.action,[x.dataset.gid]),x));
+}
+
+function removeByStatus(){
+  const nodeId=state.config.selectedNodeId;
+  const node=state.config.nodes.find(n=>n.id===nodeId)?.name||nodeId;
+  const statuses=[['complete','已完成'],['error','出错'],['removed','已移除'],['paused','已暂停'],['waiting','等待中'],['active','下载中 / 做种中']];
+  modal('按状态移除任务','<form id="remove-status-form" class="stack"><p>节点：<strong>'+esc(node)+'</strong></p><p class="hint">移除此节点中所勾选状态的全部任务，不受当前搜索、列表筛选或勾选任务限制。已下载文件和订阅记录会保留。</p><div class="form-grid">'+statuses.map(([value,label])=>'<label class="check"><input type="checkbox" name="status" value="'+value+'">'+label+'</label>').join('')+'</div><p id="remove-status-warning" class="callout" hidden>选中的下载中、等待或暂停任务将停止下载，并移除任务记录。</p><p id="remove-status-result" class="hint" role="status">请选择要移除的状态。</p><div class="form-actions"><button type="button" id="cancel-remove-status">取消</button><button type="submit" class="danger" disabled>移除所选状态的全部任务</button></div></form>');
+  const form=$('#remove-status-form'),submit=form.querySelector('[type=submit]'),result=$('#remove-status-result');
+  const selected=()=>[...form.querySelectorAll('input:checked')].map(x=>x.value);
+  form.onchange=()=>{submit.disabled=!selected().length;$('#remove-status-warning').hidden=!selected().some(s=>['active','waiting','paused'].includes(s));result.textContent=selected().length?'将移除：'+statuses.filter(([value])=>selected().includes(value)).map(([,label])=>label).join('、'):'请选择要移除的状态。';};
+  $('#cancel-remove-status').onclick=closeModal;
+  form.onsubmit=e=>{e.preventDefault();const choices=selected();if(!choices.length||submit.disabled)return;run(async()=>{
+    form.querySelectorAll('input').forEach(x=>x.disabled=true);
+    try{
+      const results=await api('/tasks/remove-by-status','POST',{nodeId,statuses:choices});
+      const removed=results.filter(x=>x.removed).length,failed=results.filter(x=>x.error),skipped=results.length-removed-failed.length;
+      result.textContent='已移除 '+removed+' 个任务'+(skipped?'，'+skipped+' 个状态已变化，已跳过':'')+(failed.length?'。失败 '+failed.length+' 个：'+failed.map(x=>x.gid+'：'+x.error).join('；'):'');
+      if(!failed.length){closeModal();toast(result.textContent);}else toast('部分任务未能移除，请查看弹窗中的原因',true);
+      state.selected.clear();if(state.page==='downloads')await refreshTasks();
+    }finally{form.querySelectorAll('input').forEach(x=>x.disabled=false);}
+  },submit);};
 }
 
 async function action(action,gids){

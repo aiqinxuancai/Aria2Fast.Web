@@ -339,6 +339,18 @@ def main():
             TASKS['no-source'] = {**failed,'gid':'no-source','files':[]}
             assert api('/tasks/action','POST',{'action':'retry','gids':['no-source'],'nodeId':node})[0]['error']
             assert 'no-source' in TASKS
+        if not args.real_aria:
+            for status in ['complete','error','removed','paused','waiting','active']:
+                TASKS['status-'+status] = {'gid':'status-'+status,'status':status}
+            api('/tasks/remove-by-status','POST',{'nodeId':node,'statuses':[]},expected=400)
+            api('/tasks/remove-by-status','POST',{'nodeId':node,'statuses':['unknown']},expected=400)
+            results = api('/tasks/remove-by-status','POST',{'nodeId':node,'statuses':['complete','error']})
+            assert all(not r['error'] for r in results)
+            assert 'status-complete' not in TASKS and 'status-error' not in TASKS
+            assert all('status-'+s in TASKS for s in ['removed','paused','waiting','active'])
+            results = api('/tasks/remove-by-status','POST',{'nodeId':node,'statuses':['paused']})
+            assert any(r['gid']=='status-paused' and r['removed'] for r in results)
+            assert 'status-paused' not in TASKS and 'status-active' in TASKS
         backup = api('/backup')
         assert api('/backup/import', 'POST', backup)['imported'] == 0
         api('/not-a-route', expected=404)

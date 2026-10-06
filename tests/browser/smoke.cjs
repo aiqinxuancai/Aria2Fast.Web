@@ -25,6 +25,15 @@ const root = path.resolve(__dirname, '../..');
     await page.locator('#login-form input').fill(info.password);
     await page.locator('#login-form button').click();
     await page.locator('#stat-down').filter({hasText:'KB'}).waitFor();
+    await page.locator('#remove-by-status').click();
+    assert(await page.locator('#remove-status-form [type=submit]').isDisabled());
+    await page.locator('#remove-status-form [value=complete]').check();
+    assert(await page.locator('#remove-status-form [type=submit]').isEnabled());
+    assert(await page.locator('#remove-status-warning').isHidden());
+    await page.locator('#remove-status-form [value=active]').check();
+    assert(await page.locator('#remove-status-warning').isVisible());
+    await page.locator('#cancel-remove-status').click();
+
     await require('./modal-drag.cjs')(page);
     await page.locator('#global-options').click();
     await page.locator('#options-form [name=max-overall-upload-limit]').fill('256K');
