@@ -46,12 +46,12 @@ public static class DownloadEndpoints
         });
         api.MapPost("/tasks/action", async (ActionRequest input, AriaRpc rpc, CancellationToken ct) =>
         {
-            var method = input.Action switch { "pause" => "pause", "resume" => "unpause", "remove" => "remove", "forget" => "removeDownloadResult", "pauseAll" => "pauseAll", "resumeAll" => "unpauseAll", "purge" => "purgeDownloadResult", "save" => "saveSession", _ => throw new ArgumentException("不支持的操作") };
+            var method = input.Action switch { "retry" => "retry", "pause" => "pause", "resume" => "unpause", "remove" => "remove", "forget" => "removeDownloadResult", "pauseAll" => "pauseAll", "resumeAll" => "unpauseAll", "purge" => "purgeDownloadResult", "save" => "saveSession", _ => throw new ArgumentException("不支持的操作") };
             if (input.Action is "pauseAll" or "resumeAll" or "purge" or "save") return Results.Ok(await rpc.Call(method, nodeId: input.NodeId, ct: ct));
             var results = new List<object>();
             foreach (var gid in input.Gids.Take(1000))
             {
-                try { results.Add(new { gid, result = (await rpc.Call(method, [gid], input.NodeId, ct)).ToString(), error = (string?)null }); }
+                try { results.Add(new { gid, result = (input.Action == "retry" ? await rpc.Retry(gid, input.NodeId, ct) : (await rpc.Call(method, [gid], input.NodeId, ct)).ToString()), error = (string?)null }); }
                 catch (Exception ex) when (ex is not OperationCanceledException) { results.Add(new { gid, result = "", error = ex.Message }); }
             }
             return Results.Ok(results);

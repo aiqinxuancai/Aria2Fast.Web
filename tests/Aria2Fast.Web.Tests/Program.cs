@@ -46,6 +46,23 @@ Test("Local tuning preserves overrides and gates automatic trackers", () =>
 });
 
 var temporary = Path.Combine(Path.GetTempPath(), "aria2fast-tests-" + Guid.NewGuid().ToString("N"));
+Test("Retry restores BT trackers and selected files without treating web seeds as HTTP downloads", () =>
+{
+    var task = System.Text.Json.Nodes.JsonNode.Parse("""
+        {"infoHash":"0123456789012345678901234567890123456789","dir":"/downloads","bittorrent":{"announceList":[["https://tracker.example/announce"]]},"files":[{"index":"2","selected":"true","uris":[{"uri":"https://example.com/webseed"}]}]}
+        """)!;
+    var (urls, options) = DownloadRetry.Source(task);
+    Assert(urls.Single().StartsWith("magnet:?xt=urn:btih:") && urls[0].Contains("&tr="));
+    Assert(options["select-file"] == "2" && options["dir"] == "/downloads" && options["continue"] == "true");
+});
+Test("Retry preserves mirrors and Windows filenames on any host OS", () =>
+{
+    var task = System.Text.Json.Nodes.JsonNode.Parse("""
+        {"files":[{"path":"D:\\Downloads\\original.bin","uris":[{"uri":"https://example.com/a"},{"uri":"https://mirror.example/a"}]}]}
+        """)!;
+    var (urls, options) = DownloadRetry.Source(task);
+    Assert(urls.Length == 2 && options["dir"] == "D:/Downloads/" && options["out"] == "original.bin");
+});
 Test("Desktop features reject Docker, headless override and unsupported platforms", () =>
 {
     Assert(DesktopService.IsDesktop(true, null, null, null, false));

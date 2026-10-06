@@ -325,6 +325,20 @@ def main():
         api('/anime/123/review?refresh=true', 'POST', expected=400)
         assert api('/anime/123')['review'] == review
 
+        if not args.real_aria:
+            failed = {'gid':'failed-retry','status':'error','dir':'/downloads/retry','files':[{'index':'1','path':'/downloads/retry/original.bin','uris':[{'uri':fixture+'/file-retry.bin'}]}]}
+            TASKS['failed-retry'] = failed
+            result = api('/tasks/action','POST',{'action':'retry','gids':['failed-retry'],'nodeId':node})[0]
+            assert not result['error'] and result['result'] in TASKS
+            assert 'failed-retry' not in TASKS
+            assert TASKS[result['result']]['dir'] == '/downloads/retry/'
+            repeated = api('/tasks/action','POST',{'action':'retry','gids':['failed-retry'],'nodeId':node})[0]
+            assert repeated['result'] == result['result']
+            invalid = api('/tasks/action','POST',{'action':'retry','gids':[result['result']],'nodeId':node})[0]
+            assert invalid['error']
+            TASKS['no-source'] = {**failed,'gid':'no-source','files':[]}
+            assert api('/tasks/action','POST',{'action':'retry','gids':['no-source'],'nodeId':node})[0]['error']
+            assert 'no-source' in TASKS
         backup = api('/backup')
         assert api('/backup/import', 'POST', backup)['imported'] == 0
         api('/not-a-route', expected=404)

@@ -6,6 +6,39 @@ namespace Aria2Fast.Web.Services;
 
 public sealed class AriaRpc(StateStore store, HttpGateway http)
 {
+    private readonly SemaphoreSlim retryGate = new(1);
+    private readonly Dictionary<string, string> retried = [];
+    public async Task<string> Retry(string gid, string? nodeId, CancellationToken ct)
+    {
+        var node = Node(nodeId);
+        await retryGate.WaitAsync(ct);
+        try
+        {
+            var key = node.Id + ":" + gid;
+            if (retried.TryGetValue(key, out var existing)) return existing;
+            var task = await Call("tellStatus", [gid], node.Id, ct);
+            if (task["status"]?.ToString() != "error") throw new ArgumentException("仅出错的任务可以重试");
+            var (urls, options) = DownloadRetry.Source(task);
+            try
+            {
+                if (await Call("getOption", [gid], node.Id, ct) is JsonObject saved)
+                    foreach (var option in new[] { "header", "referer", "user-agent", "all-proxy", "http-user", "http-passwd", "ftp-user", "ftp-passwd", "max-download-limit", "max-upload-limit", "split", "max-connection-per-server", "bt-tracker" })
+                        if (saved[option] is { } value) options[option] = value.ToString();
+            }
+            catch (InvalidOperationException) { } // aria2 may discard options for stopped tasks.
+            var newGid = (await Call("addUri", [urls, options], node.Id, ct)).ToString();
+            retried[key] = newGid;
+            if (retried.Count > 2000) retried.Remove(retried.Keys.First());
+            Track(node.Id, newGid, urls[0]);
+            try { await Call("removeDownloadResult", [gid], node.Id, ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            { store.Log("任务已重试，但旧错误记录未能清理：" + gid, "warning"); }
+            store.Log($"任务已重试：{gid} → {newGid}", "success");
+            return newGid;
+        }
+        finally { retryGate.Release(); }
+    }
+
     public AriaNode Node(string? id = null)
     {
         var state = store.Read();
