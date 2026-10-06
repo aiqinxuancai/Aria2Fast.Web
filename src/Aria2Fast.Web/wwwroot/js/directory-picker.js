@@ -8,11 +8,13 @@ export function rememberDirectory(id,value){
   if(!value?.trim())return;
   try{localStorage.setItem(key(id),JSON.stringify([value,...history(id).filter(x=>x!==value)].slice(0,20)));}catch{}
 }
+let directoryListId=0;
 export function directoryField(label,value=''){
-  return '<label>'+esc(label)+'<input name="directory" value="'+esc(value)+'" autocomplete="off"><small class="hint" data-directory-default></small><select data-directory-history aria-label="选择历史下载目录"><option value="">选择历史目录…</option></select></label>';
+  const id='directory-history-'+(++directoryListId);
+  return '<label>'+esc(label)+'<input name="directory" value="'+esc(value)+'" list="'+id+'" autocomplete="off"><datalist id="'+id+'" data-directory-history></datalist></label>';
 }
 export function bindDirectory(form,subscription=false){
-  const input=form.elements.directory;let root='';let version=0;
+  const input=form.elements.directory;let root='';let version=0;let initial=true;
   const output=subscription?form.querySelector('[data-final-directory]'):null;
   function update(){
     if(!output)return;
@@ -28,21 +30,18 @@ export function bindDirectory(form,subscription=false){
     const current=++version;const id=form.elements.nodeId.value;
     const node=state.config.nodes.find(x=>x.id===id);
     root=id==='local'?state.config.settings.downloadDirectory:node?.downloadDirectory||'';
-    const renderDefault=()=>{input.placeholder=root||'留空使用节点默认目录';form.querySelector('[data-directory-default]').textContent=root?'留空时使用：'+root:'正在获取节点默认目录…';update();};
-    const select=form.querySelector('[data-directory-history]');
-    select.innerHTML='<option value="">选择历史目录…</option>'+history(id).map(x=>'<option value="'+esc(x)+'">'+esc(x)+'</option>').join('');
-    select.disabled=!history(id).length;
+    const items=history(id);
+    if(!initial||!input.value.trim())input.value=items[0]||'';
+    initial=false;
+    const renderDefault=()=>{input.placeholder=root||'路径';update();};
+    form.querySelector('[data-directory-history]').innerHTML=items.map(x=>'<option value="'+esc(x)+'"></option>').join('');
     renderDefault();
     if(!root)try{
       const result=await api('/nodes/'+encodeURIComponent(id)+'/directory');
       if(current!==version||!form.isConnected)return;
       root=result.directory;renderDefault();
-      if(!root)form.querySelector('[data-directory-default]').textContent='节点未返回默认目录，可填写下载目录';
-    }catch{
-      if(current===version&&form.isConnected)form.querySelector('[data-directory-default]').textContent='暂时无法获取默认目录，可手动填写或稍后重试';
-    }
+    }catch{}
   }
-  form.querySelector('[data-directory-history]').onchange=e=>{if(e.target.value){input.value=e.target.value;update();}};
   form.elements.nodeId.addEventListener('change',changeNode);
   form.addEventListener('input',update);form.addEventListener('change',update);
   changeNode();

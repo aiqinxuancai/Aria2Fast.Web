@@ -34,10 +34,9 @@ public static class Validation
         if (!state.Nodes.Any(n => n.Id == s.NodeId)) throw new ArgumentException("订阅节点不存在");
         if (s.Season is < 0 or > 999) throw new ArgumentException("季度应在 0 到 999 之间");
         if (s.IsFilterRegex)
-        {
             _ = new Regex(s.Filter, RegexOptions.None, TimeSpan.FromMilliseconds(200));
+        if (s.IsExcludeFilterRegex ?? s.IsFilterRegex)
             _ = new Regex(s.ExcludeFilter, RegexOptions.None, TimeSpan.FromMilliseconds(200));
-        }
         if (!string.IsNullOrWhiteSpace(s.NamePath)) s.NamePath = Segment(s.NamePath);
     }
 

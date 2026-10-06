@@ -12,6 +12,7 @@ public sealed class Subscription
     public string Filter { get; set; } = "";
     public string ExcludeFilter { get; set; } = "";
     public bool IsFilterRegex { get; set; }
+    public bool? IsExcludeFilterRegex { get; set; }
     public bool AutoDir { get; set; }
     public bool Enabled { get; set; } = true;
     public bool SkipExisting { get; set; }

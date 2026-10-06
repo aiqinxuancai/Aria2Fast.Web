@@ -30,7 +30,7 @@ public sealed class SubscriptionService(StateStore store, FeedService feeds, Ari
                         if (!redownload && (history.Contains(item.Key) || subscription.History.Any(x => x.Url == item.Url))) continue;
                         if (!store.Read().Subscriptions.Any(x => x.Id == subscription.Id && (x.Enabled || redownload))) break;
                         if (!Validation.Matches(item.Title, subscription.Filter, subscription.IsFilterRegex)) continue;
-                        if (!string.IsNullOrWhiteSpace(subscription.ExcludeFilter) && Validation.Matches(item.Title, subscription.ExcludeFilter, subscription.IsFilterRegex)) continue;
+                        if (!string.IsNullOrWhiteSpace(subscription.ExcludeFilter) && Validation.Matches(item.Title, subscription.ExcludeFilter, subscription.IsExcludeFilterRegex ?? subscription.IsFilterRegex)) continue;
                         var skipped = !redownload && !subscription.Initialized && subscription.SkipExisting;
                         string? gid = null;
                         if (!skipped)

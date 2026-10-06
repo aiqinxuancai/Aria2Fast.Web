@@ -28,9 +28,9 @@ public static class SubscriptionEndpoints
         {
             var feed = await feeds.Fetch(input.Url, ct);
             return new { feed.Title, items = feed.Items.Select(x => new { item = x, matches = Validation.Matches(x.Title, input.Filter ?? "", input.IsFilterRegex)
-                && (string.IsNullOrWhiteSpace(input.ExcludeFilter) || !Validation.Matches(x.Title, input.ExcludeFilter, input.IsFilterRegex)) }) };
+                && (string.IsNullOrWhiteSpace(input.ExcludeFilter) || !Validation.Matches(x.Title, input.ExcludeFilter, input.IsExcludeFilterRegex ?? input.IsFilterRegex)) }) };
         });
     }
     public sealed record CheckRequest(string? Id);
-    public sealed record PreviewRequest(string Url, string? Filter, bool IsFilterRegex, string? ExcludeFilter = null);
+    public sealed record PreviewRequest(string Url, string? Filter, bool IsFilterRegex, string? ExcludeFilter = null, bool? IsExcludeFilterRegex = null);
 }
