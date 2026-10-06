@@ -14,3 +14,11 @@
 
 .anime-card{display:flex;flex-direction:column;align-self:start;width:100%}.anime-card .poster{width:100%;flex:none}.anime-card h3{width:100%;flex:none;text-align:left}
 .anime-badges{position:absolute;top:10px;right:10px;display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}.anime-badges b{padding:4px 7px;border-radius:7px;color:#fff;font-size:10px;box-shadow:0 2px 9px #0003}.anime-badges .pink,.anime-badges .updated{background:#cf3056}.anime-badges .purple{background:#6b35af}.anime-episode:not(:empty){position:absolute;bottom:12px;right:10px;background:#386329;color:#fff;font-size:10px;padding:5px 8px;border-radius:6px}.directory-summary{margin:6px 0 0;overflow-wrap:anywhere}.directory-summary strong{display:block;margin-bottom:8px;color:var(--text)}.preview-body{padding:24px}.preview-body .file-list{max-height:55dvh}
+
+/* Keep background scrolling locked until the last modal closes. */
+html{scrollbar-gutter:stable}
+html:has(dialog[open]),html:has(dialog[open]) body{overflow:hidden}
+dialog{overscroll-behavior:contain}
+dialog .file-list,dialog .table-scroll,dialog textarea{overscroll-behavior:contain}
+dialog[inert]{overflow:hidden}
+\n.ai-editor-actions{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}#ai-test-result{white-space:pre-wrap;overflow-wrap:anywhere;max-height:260px;overflow:auto;margin:0}.ai-test-success{color:var(--accent);border-color:var(--accent)}.ai-profile-row>div:first-child{min-width:0}\n

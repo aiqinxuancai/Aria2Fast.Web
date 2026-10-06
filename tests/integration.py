@@ -71,6 +71,9 @@ class Fixtures(BaseHTTPRequestHandler):
         else:
             raw = self.rfile.read(int(self.headers.get('Content-Length', 0)))
         body = json.loads(raw or b'{}')
+        if self.path.startswith('/invalid/'):
+            self.send_error(401, 'Invalid test credentials')
+            return
         if self.path.endswith('/chat/completions'):
             return self.reply({'choices': [{'message': {'content': '连接成功'}}]})
         if self.path.endswith('/responses'):

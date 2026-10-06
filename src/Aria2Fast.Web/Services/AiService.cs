@@ -13,6 +13,11 @@ public sealed class AiService(StateStore store, HttpGateway http)
     {
         var settings = store.Read().Settings;
         var profile = settings.AiProfiles.FirstOrDefault(x => x.Id == (profileId ?? settings.SelectedAiId)) ?? settings.AiProfiles.FirstOrDefault();
+        return await SendProfile(profile, prompt, instruction, ct);
+    }
+
+    public async Task<string> SendProfile(AiProfile? profile, string prompt, string instruction, CancellationToken ct = default)
+    {
         if (profile is null || string.IsNullOrWhiteSpace(profile.ApiKey) || string.IsNullOrWhiteSpace(profile.ModelName))
             throw new ArgumentException("请先在设置中配置 AI 服务、模型和 API Key");
         var url = AiProtocol.BuildRequestUrl(profile.Protocol, profile.BaseUrl, profile.ModelName);

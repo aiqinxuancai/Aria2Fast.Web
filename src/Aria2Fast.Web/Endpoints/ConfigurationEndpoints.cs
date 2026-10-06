@@ -55,6 +55,37 @@ public static class ConfigurationEndpoints
         api.MapGet("/nodes/{id}/directory", async (string id, DownloadPaths paths, CancellationToken ct) => new { directory = await paths.Default(id, ct) });
         api.MapPost("/push/test", async (BackgroundWorker worker, CancellationToken ct) => { await worker.Push("Aria2Fast Web", "测试通知发送成功", ct); return Results.Ok(); });
         api.MapPost("/ai/test", async (AiService ai, CancellationToken ct) => new { text = await ai.Send("请回复：连接成功", "你是接口测试助手。", ct) });
+        api.MapPost("/ai/test-profile", async (AiProfile profile, AiService ai, CancellationToken ct) =>
+        {
+            Validation.HttpUrl(profile.BaseUrl);
+            if (!Enum.IsDefined(profile.Protocol)) throw new ArgumentException("不支持的 AI 协议");
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            var text = await ai.SendProfile(profile, "请回复：连接成功", "你是接口测试助手。", ct);
+            return new { text, elapsedMs = timer.ElapsedMilliseconds };
+        });
+        api.MapPost("/ai/profiles", (AiProfile profile, StateStore store) =>
+        {
+            Validation.HttpUrl(profile.BaseUrl);
+            if (!Enum.IsDefined(profile.Protocol) || string.IsNullOrWhiteSpace(profile.Name) || string.IsNullOrWhiteSpace(profile.ModelName) || string.IsNullOrWhiteSpace(profile.ApiKey))
+                throw new ArgumentException("请填写接口名称、有效协议、模型和 API Key");
+            store.Update(s =>
+            {
+                var index = s.Settings.AiProfiles.FindIndex(p => p.Id == profile.Id);
+                if (index >= 0) s.Settings.AiProfiles[index] = profile;
+                else s.Settings.AiProfiles.Add(profile);
+                if (string.IsNullOrEmpty(s.Settings.SelectedAiId)) s.Settings.SelectedAiId = profile.Id;
+            });
+            return profile;
+        });
+        api.MapDelete("/ai/profiles/{id}", (string id, StateStore store) =>
+        {
+            store.Update(s =>
+            {
+                s.Settings.AiProfiles.RemoveAll(p => p.Id == id);
+                if (s.Settings.SelectedAiId == id) s.Settings.SelectedAiId = s.Settings.AiProfiles.FirstOrDefault()?.Id ?? "";
+            });
+            return Results.Ok();
+        });
         api.MapGet("/backup", (BackupService backup) => Results.File(backup.Export(), "application/json", "aria2fast-subscriptions.json"));
         api.MapPost("/backup/import", async (HttpRequest request, BackupService backup, CancellationToken ct) =>
         {
