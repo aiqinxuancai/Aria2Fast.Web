@@ -14,8 +14,17 @@ module.exports=async function verifyAnimeReview(page){
     await page.locator('#ai-review').click();
     await page.locator('#ai-review-content[aria-busy=true]').waitFor();
     assert(await page.locator('#ai-review').isDisabled());
+    await page.locator('#modal-close').click();
+    await page.locator('.anime-card[data-anime="123"]').click();
+    await page.locator('#ai-review-content[aria-busy=true]').waitFor();
+    assert(await page.locator('#ai-review').isDisabled());
+    assert.equal(calls,1,'Reopening must not start another investigation');
+    await page.locator('#modal-close').click();
     release();
+    await page.locator('.toast').filter({hasText:'【Fixture Anime】调查与评析已完成并保存'}).waitFor();
+    await page.locator('.anime-card[data-anime="123"]').click();
     await page.locator('#ai-review').filter({hasText:'重新调查'}).waitFor();
+    await page.locator('.toast').filter({hasText:'【Fixture Anime】调查与评析已完成并保存'}).waitFor();
     assert((await page.locator('#ai-review-content').textContent()).includes('原作作者与出版社'));
     assert.equal(await page.locator('#ai-review-content a').count(),1);
     assert.equal(await page.locator('#ai-review-content a').getAttribute('rel'),'noopener noreferrer');

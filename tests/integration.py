@@ -310,6 +310,12 @@ def main():
             review = api('/anime/123/review?refresh=true', 'POST')
             assert review['version'] == 2 and review['originalWork'] == '原作资料尚未核实'
             assert review['score'] is None and review['warnings']
+            task = next(t for t in api('/anime/review-tasks') if t['animeId'] == '123')
+            assert task['status'] == 'completed' and '保存' in task['progress']
+            notices = api('/state')['notices']
+            assert any(n['level'] == 'success' and '调查与评析已完成' in n['message'] for n in notices)
+            assert any('正在分析资料' in n['message'] for n in notices)
+
             assert api('/anime/123?generateAi=false')['review'] == review
             assert api('/anime/123/review', 'POST') == review
         config['aiProfiles'] = []

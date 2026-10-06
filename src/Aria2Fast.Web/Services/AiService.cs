@@ -9,6 +9,9 @@ namespace Aria2Fast.Web.Services;
 
 public sealed class AiService(StateStore store, HttpGateway http)
 {
+    public sealed record ReviewTask(string Id, string AnimeId, string Name, string Status, string Progress, DateTimeOffset UpdatedAt);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, ReviewTask> tasks = new();
+    public ReviewTask[] ReviewTasks() => tasks.Values.OrderByDescending(x => x.UpdatedAt).ToArray();
     // Fixed-size lock stripes avoid retaining one semaphore for every title ever opened.
     private readonly SemaphoreSlim[] reviewGates = Enumerable.Range(0, 32).Select(_ => new SemaphoreSlim(1)).ToArray();
     private string TranslationKey(string text) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text)));
@@ -89,10 +92,22 @@ public sealed class AiService(StateStore store, HttpGateway http)
         if (!refresh && before is not null) return before;
         var gate = reviewGates[(int)((uint)StringComparer.Ordinal.GetHashCode(id) % (uint)reviewGates.Length)];
         await gate.WaitAsync(ct);
+        ReviewTask? task = null;
+        void Progress(string message, string status = "running")
+        {
+            if (task is null) return;
+            task = task with { Progress = message, Status = status, UpdatedAt = DateTimeOffset.UtcNow };
+            tasks[id] = task;
+            store.Log($"【{name}】{message}", status == "completed" ? "success" : status == "failed" ? "error" : "info");
+        }
         try
         {
             var cached = CachedReview(id);
             if (cached is not null && (!refresh || cached.CreatedAt != before?.CreatedAt)) return cached;
+            foreach (var old in tasks.Where(x => x.Value.Status != "running" && x.Value.UpdatedAt < DateTimeOffset.UtcNow.AddHours(-1)).ToArray())
+                tasks.TryRemove(old.Key, out _);
+            task = new(Guid.NewGuid().ToString("N"), id, name, "running", "开始调查与评析", DateTimeOffset.UtcNow);
+            Progress("开始调查与评析");
             var settings = store.Read().Settings;
             var profile = settings.AiProfiles.FirstOrDefault(x => x.Id == settings.SelectedAiId) ?? settings.AiProfiles.FirstOrDefault();
             var search = new ResearchSearchTools(settings, () => http.Create(timeoutSeconds: 25));
@@ -102,7 +117,7 @@ public sealed class AiService(StateStore store, HttpGateway http)
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
             deadline.CancelAfter(TimeSpan.FromMinutes(8));
             AiReview review;
-            try { review = await agent.Run(name, summary, deadline.Token); }
+            try { review = await agent.Run(name, summary, deadline.Token, message => Progress(message)); }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
                 throw new InvalidOperationException("番剧调查超过时间限制，请重试。已有评析仍保留。");
@@ -111,7 +126,13 @@ public sealed class AiService(StateStore store, HttpGateway http)
             ct.ThrowIfCancellationRequested();
             // Commit only a complete, validated result; a failed refresh never removes the previous review.
             store.Update(s => s.Reviews[id] = review);
+            Progress("调查与评析已完成并保存", "completed");
             return review;
+        }
+        catch (Exception ex)
+        {
+            Progress(ex is OperationCanceledException ? "调查已取消，已有评析仍保留" : "调查失败，已有评析仍保留", "failed");
+            throw;
         }
         finally { gate.Release(); }
     }

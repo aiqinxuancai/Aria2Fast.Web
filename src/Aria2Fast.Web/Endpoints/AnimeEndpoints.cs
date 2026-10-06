@@ -5,6 +5,7 @@ public static class AnimeEndpoints
 {
     public static void MapAnime(this RouteGroupBuilder api)
     {
+        api.MapGet("/anime/review-tasks", (AiService ai) => ai.ReviewTasks());
         api.MapGet("/anime", (int? year, string? season, bool? refresh, MikanService mikan, CancellationToken ct) => mikan.List(year, season, refresh ?? false, ct));
         api.MapGet("/anime/{id}", (string id, bool? generateAi, MikanService mikan, CancellationToken ct) => mikan.Detail(id, ct, generateAi ?? true));
         api.MapGet("/anime/{id}/badges", (string id, MikanService mikan, CancellationToken ct) => mikan.Badges(id, ct));

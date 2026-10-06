@@ -20,7 +20,7 @@ async function load(refresh){
 }
 function cardMarkup(c){
   const unpublished=c.hasReleases===false;
-  return '<button class="anime-card'+(unpublished?' unpublished':'')+'" '+(unpublished?'disabled aria-label="'+esc(c.name+'，暂无字幕组发布')+'"':'data-anime="'+esc(c.id)+'"')+'><div class="poster">'+(c.image?'<img loading="lazy" src="'+esc(c.image)+'" alt="'+esc(c.name)+'" referrerpolicy="no-referrer">':'')+(unpublished?'<span>暂无字幕组发布</span>':'')+'<div class="anime-badges"></div><div class="anime-episode"></div></div><h3 title="'+esc(c.name)+'">'+esc(c.name)+'</h3></button>';
+  return '<button class="anime-card'+(unpublished?' unpublished':'')+'" '+'data-anime="'+esc(c.id)+'"'+(unpublished?' aria-label="'+esc(c.name+'，暂无字幕组发布，查看详情')+'"':'')+'><div class="poster">'+(c.image?'<img loading="lazy" src="'+esc(c.image)+'" alt="'+esc(c.name)+'" referrerpolicy="no-referrer">':'')+(unpublished?'<span>暂无字幕组发布</span>':'')+'<div class="anime-badges"></div><div class="anime-episode"></div></div><h3 title="'+esc(c.name)+'">'+esc(c.name)+'</h3></button>';
 }
 function badgeMarkup(b){
   return (b.hot?'<b class="hot '+esc(b.hot)+'" title="'+b.groupCount+' 个字幕组">Hot</b>':'')+(b.updatedGroups?'<b class="updated" title="最近 24 小时更新的字幕组">'+b.updatedGroups+' 更新</b>':'');
@@ -43,7 +43,7 @@ function observeBadges(){
       card.badgeRequest.then(show).catch(()=>{if(entry.target.isConnected)entry.target.querySelector('.anime-badges').title='更新信息暂不可用';});
     });
   },{rootMargin:'100px'});
-  document.querySelectorAll('.anime-card[data-anime]').forEach(card=>badgeObserver.observe(card));
+  document.querySelectorAll('.anime-card[data-anime]:not(.unpublished)').forEach(card=>badgeObserver.observe(card));
 }
 function render(){
   const matches=cards.filter(c=>(day==='全部'||(c.day||'其他')===day)&&c.name.toLowerCase().includes(search.toLowerCase()));

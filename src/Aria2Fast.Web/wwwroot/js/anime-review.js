@@ -1,4 +1,4 @@
-import {esc,api,run} from './core.js';
+import {esc,api,run,toast} from './core.js';
 
 function reviewMarkup(review){
   if(!review)return '<p class="hint">调查番剧背景、原作与动画改编信息，结合来源生成评析。完成后自动保存，可随时重新调查。</p>';
@@ -11,30 +11,68 @@ function reviewMarkup(review){
     (review.queries?.length?'<details><summary>调查记录（'+review.queries.length+' 次搜索）</summary><ul>'+review.queries.map(q=>'<li>'+esc(q)+'</li>').join('')+'</ul></details>':'');
 }
 
+const localTasks=new Map();
+let remoteTasks=new Map();
+const watched=new Map();
+let monitoring=false,inFlight=null,initialized=false;
+const emit=()=>window.dispatchEvent(new Event('review-progress'));
+export function pollReviews(){
+  if(inFlight)return inFlight;
+  inFlight=(async()=>{
+    const tasks=await api('/anime/review-tasks');
+    remoteTasks=new Map(tasks.map(task=>[task.animeId,task]));
+    for(const task of tasks){
+      const previous=watched.get(task.id);
+      const local=localTasks.get(task.animeId);
+      if(local&&!local.running&&local.remoteId!==task.id)localTasks.delete(task.animeId);
+      if(initialized&&task.status!=='running'&&previous!=='completed'&&previous!=='failed'&&!localTasks.has(task.animeId))
+        toast('【'+task.name+'】'+task.progress,task.status==='failed');
+      watched.set(task.id,task.status);
+    }
+    initialized=true;emit();
+  })().finally(()=>{inFlight=null;});
+  return inFlight;
+}
+export function monitorReviews(enabled){
+  monitoring=enabled;
+  if(enabled)pollReviews().catch(()=>{});
+  else{remoteTasks.clear();watched.clear();initialized=false;}
+}
+setInterval(()=>{if(monitoring)pollReviews().catch(()=>{});},2000);
+
 export function bindAnimeReview(id,review,button,container,autoReview){
-  let current=review;
+  let current=localTasks.get(id)?.result||review;
+  let checking=true;
   container.classList.add('anime-review');
-  const render=()=>{container.innerHTML=reviewMarkup(current);button.textContent=current?'↻ 重新调查':'✧ 调查并评析';};
-  render();
-  const investigate=async(refresh)=>{
-    if(button.disabled)return;
-    button.disabled=true;
-    button.textContent='正在调查…';
-    const status=document.createElement('p');
-    status.className='callout';status.setAttribute('role','status');
-    status.textContent='正在调查番剧与原作资料、核对网页并整理评析，可能需要几分钟。';
-    container.prepend(status);container.setAttribute('aria-busy','true');
-    try{
-      current=await api('/anime/'+encodeURIComponent(id)+'/review'+(refresh?'?refresh=true':''),'POST');
-      if(container.isConnected)render();
-    }catch(error){
-      status.classList.add('error');
-      status.textContent=error.message+(current?' 已保留上次保存的评析。':' 可再次点击重试。');
-    }finally{
-      container.removeAttribute('aria-busy');button.disabled=false;
-      button.textContent=current?'↻ 重新调查':'✧ 调查并评析';
+  const render=()=>{
+    if(!container.isConnected){window.removeEventListener('review-progress',render);return;}
+    const local=localTasks.get(id),remote=remoteTasks.get(id);
+    if(local?.result)current=local.result;
+    const busy=checking||local?.running||remote?.status==='running';
+    button.disabled=!!busy;
+    button.textContent=busy?(checking?'检查调查状态…':'正在调查…'):current?'↻ 重新调查':'✧ 调查并评析';
+    container.toggleAttribute('aria-busy',!!busy);
+    if(busy)container.setAttribute('aria-busy','true');
+    container.innerHTML=reviewMarkup(current);
+    const message=busy?(remote?.status==='running'?remote.progress:'正在调查番剧与原作资料…'):local?.error;
+    if(message){const status=document.createElement('p');status.className='callout'+(!busy?' error':'');status.setAttribute('role','status');status.textContent=message+(!busy&&current?' 已保留上次保存的评析。':'');container.prepend(status);}
+    if(!busy&&remote?.status==='completed'&&!local?.result&&remote.id!==container.dataset.loadedReview){
+      container.dataset.loadedReview=remote.id;
+      api('/anime/'+encodeURIComponent(id)+'/review','POST').then(result=>{current=result;render();}).catch(()=>{delete container.dataset.loadedReview;});
     }
   };
+  window.addEventListener('review-progress',render);
+  const investigate=async(refresh)=>{
+    if(button.disabled)return;
+    const title=document.querySelector('#modal-title')?.textContent||'番剧';
+    const task={running:true,result:current,error:null};localTasks.set(id,task);emit();
+    try{
+      task.result=await api('/anime/'+encodeURIComponent(id)+'/review'+(refresh?'?refresh=true':''),'POST');
+      toast('【'+title+'】调查与评析已完成并保存');
+    }catch(error){task.error=error.message;toast('调查与评析失败：'+error.message,true);}
+    finally{await pollReviews().catch(()=>{});task.remoteId=remoteTasks.get(id)?.id;task.running=false;emit();}
+  };
   button.onclick=()=>investigate(!!current);
-  if(autoReview&&!current)run(()=>investigate(false));
+  render();
+  pollReviews().then(()=>{checking=false;render();if(autoReview&&!current&&!button.disabled)run(()=>investigate(false));}).catch(()=>{checking=false;render();});
 }

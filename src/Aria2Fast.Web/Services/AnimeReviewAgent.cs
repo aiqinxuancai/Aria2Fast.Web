@@ -29,7 +29,7 @@ public sealed class AnimeReviewAgent(
         若工具可用，必须先搜索核对身份并调查原作，再完成。不要重复相同查询；工具失败时调整查询或说明局限。
         """;
 
-    public async Task<AiReview> Run(string name, string summary, CancellationToken ct)
+    public async Task<AiReview> Run(string name, string summary, CancellationToken ct, Action<string>? progress = null)
     {
         var sources = new List<AiResearchSource>();
         var queries = new List<string>();
@@ -42,6 +42,7 @@ public sealed class AnimeReviewAgent(
         for (var turn = 0; turn < 16; turn++)
         {
             ct.ThrowIfCancellationRequested();
+            progress?.Invoke($"正在分析资料（第 {turn + 1} 轮）");
             var canSearch = search is not null && attempts < MaxSearches && turn < 14;
             var canFetch = fetch is not null && fetchAttempts < 4 && turn < 14;
             var prompt = JsonSerializer.Serialize(new
@@ -74,6 +75,7 @@ public sealed class AnimeReviewAgent(
                     continue;
                 }
                 fetchAttempts++;
+                progress?.Invoke($"正在读取参考网页（第 {fetchAttempts} 页）");
                 try
                 {
                     var page = await fetch!(url, ct);
@@ -118,6 +120,7 @@ public sealed class AnimeReviewAgent(
                     continue;
                 }
                 queries.Add(query);
+                progress?.Invoke($"正在搜索：{query}");
                 try
                 {
                     var found = await search!(query, provider, ct);
@@ -162,6 +165,7 @@ public sealed class AnimeReviewAgent(
             }
             double? score = action["score"] is JsonValue value && value.TryGetValue<double>(out var number) && double.IsFinite(number) && number is >= 1 and <= 10 && sources.Count > 0 ? number : null;
             if (sources.Count == 0 && search is not null) warnings.Add("未获得可引用的联网资料，本次总结信息有限。");
+            progress?.Invoke("调查完成，正在保存评析");
             return new(score, String(action, "review"), DateTimeOffset.UtcNow,
                 string.Join("\n", sources.Select(s => $"[{s.Id}] {s.Title}：{s.Url}")))
             {
