@@ -51,6 +51,13 @@ class Fixtures(BaseHTTPRequestHandler):
             date = (datetime.now(timezone(timedelta(hours=8))) - timedelta(hours=1)).strftime('%Y/%m/%d %H:%M')
             groups = ''.join(f'<div class="subgroup-text"><a>Fixture Group</a><a class="mikan-rss" href="/RSS/123?group={i}">RSS</a></div><div class="episode-table"><table><tbody><tr><td></td><td><a class="magnet-link-wrap">Fixture - {i:02d}</a></td><td>1GB</td><td>{date}</td></tr></tbody></table></div>' for i in range(1, 8))
             return self.reply(('<html><h1>Fixture Anime</h1><p class="header2-desc">A sample description.</p>' + groups + '</html>').encode(), 'text/html')
+        if self.path.startswith('/Home/Bangumi/456'):
+            self.send_response(302)
+            self.send_header('Location', '/mikan')
+            self.end_headers()
+            return
+        if self.path.startswith('/Home/Bangumi/789'):
+            return self.reply('<html><p class="bangumi-title">周日待发布 &amp; 新番</p><div class="header2-desc">尚未发布作品的真实简介。</div></html>'.encode(), 'text/html')
         if self.path.startswith(('/Home/BangumiCoverFlowByDayOfWeek', '/mikan')):
             return self.reply((ROOT / 'tests/fixtures/mikan-calendar.html').read_bytes(), 'text/html')
         if self.path.startswith('/poster.svg'):
@@ -179,17 +186,21 @@ def start_app(real=False):
             pass
 
     atexit.register(cleanup)
-    for _ in range(100):
+
+    def app_log():
+        logs.flush()
+        return (Path(data.name) / 'app.log').read_text(encoding='utf-8', errors='replace')
+
+    for _ in range(200):
         try:
             request.urlopen(base + '/healthz', timeout=1)
             break
         except (OSError, error.URLError):
             if proc.poll() is not None:
-                logs.flush()
-                raise RuntimeError((Path(data.name) / 'app.log').read_text(encoding='utf-8'))
+                raise RuntimeError(app_log())
             time.sleep(.15)
     else:
-        raise RuntimeError('Application startup timed out')
+        raise RuntimeError('Application startup timed out\n' + app_log())
     jar = http.cookiejar.CookieJar()
     client = request.build_opener(request.HTTPCookieProcessor(jar))
 
@@ -204,7 +215,7 @@ def start_app(real=False):
         except error.HTTPError as ex:
             response = ex
         content = response.read()
-        assert response.status == expected, (path, response.status, content.decode(errors='replace'))
+        assert response.status == expected, (path, response.status, content.decode(errors='replace'), app_log())
         return json.loads(content) if content else None
 
     assert request.urlopen(base).status == 200
@@ -213,6 +224,8 @@ def start_app(real=False):
     api('/auth/login', 'POST', {'password': 'incorrect'}, expected=401)
     api('/auth/login', 'POST', {'password': PASSWORD})
     config = api('/state')
+    if real:
+        assert config['local']['running'] and not config['local']['error'], (config['local'], app_log())
     settings = config['settings']
     settings['mikanBaseUrl'] = fixture
     api('/settings', 'PUT', settings)
@@ -298,6 +311,12 @@ def main():
         assert [c['hasReleases'] for c in calendar] == [True, False, False]
         assert calendar[2]['name'] == '周日待发布 & 新番'
         assert api('/anime/123')['groups'][0]['name'] == 'Fixture Group'
+        unpublished = api('/anime/456?generateAi=false')
+        assert unpublished['name'] == '周三待发布' and unpublished['groups'] == [], unpublished
+        assert unpublished['summary'] == '' and unpublished['originalSummary'] == '', unpublished
+        unpublished_with_summary = api('/anime/789?generateAi=false')
+        assert unpublished_with_summary['name'] == '周日待发布 & 新番', unpublished_with_summary
+        assert unpublished_with_summary['summary'] == '尚未发布作品的真实简介。' and unpublished_with_summary['groups'] == [], unpublished_with_summary
         assert api('/anime/123/badges') == {'groupCount': 7, 'updatedGroups': 7, 'latestEpisode': 7, 'hot': 'purple'}
         for protocol in ['OpenAIChatCompletions', 'OpenAIResponses', 'Claude', 'Gemini']:
             config = api('/state')['settings']

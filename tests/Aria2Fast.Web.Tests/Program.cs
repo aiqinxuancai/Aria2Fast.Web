@@ -4,6 +4,12 @@ using Aria2Fast.Web.Infrastructure;
 using Aria2Fast.Web.Services;
 using Microsoft.Extensions.Configuration;
 
+if (args.Any(arg => arg.StartsWith("--conf-path=")))
+{
+    await LocalAriaStartupTests.RunEngine(args);
+    return;
+}
+
 var passed = 0;
 void Test(string name, Action action) { action(); passed++; Console.WriteLine("PASS " + name); }
 void Assert(bool condition) { if (!condition) throw new Exception("Assertion failed"); }
@@ -154,4 +160,5 @@ try
 }
 finally { Directory.Delete(temporary, true); }
 passed += await AiResearchTests.Run();
+passed += await LocalAriaStartupTests.Run();
 Console.WriteLine($"{passed} tests passed.");

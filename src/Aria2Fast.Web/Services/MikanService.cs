@@ -41,6 +41,7 @@ public sealed class MikanService(StateStore store, HttpGateway http, IMemoryCach
         var url = Root + (year.HasValue && season != null ? $"/Home/BangumiCoverFlowByDayOfWeek?year={year}&seasonStr={Uri.EscapeDataString(season)}" : "/");
         var result = MikanCalendarParser.Parse(await http.GetTextAsync(url, ct), Root);
         if (result.Count == 0) throw new InvalidDataException("Mikan 未返回番剧。可能是源站不可用或页面结构改变，请检查源站地址/代理。");
+        foreach (var card in result) cache.Set($"mikan-card:{Root}:{card.Id}", card, TimeSpan.FromHours(2));
         cache.Set(key, result, TimeSpan.FromHours(2));
         return result;
     }
@@ -53,16 +54,24 @@ public sealed class MikanService(StateStore store, HttpGateway http, IMemoryCach
         var doc = new HtmlDocument();
         doc.LoadHtml(await http.GetTextAsync(Root + "/Home/Bangumi/" + id, ct));
         var name = Text(doc.DocumentNode.SelectSingleNode("//p[contains(@class,'bangumi-title')] | //div[contains(@class,'bangumi-title')] | //h1"));
-        if (name.Length == 0) name = Text(doc.DocumentNode.SelectSingleNode("//title")).Split('-')[0].Trim();
-        var summary = Text(doc.DocumentNode.SelectSingleNode("//p[contains(@class,'header2-desc')]"));
+        // Unreleased titles redirect to the calendar. Its <title> belongs to Mikan, not the anime.
+        var isDetail = name.Length > 0;
+        if (!isDetail)
+        {
+            var card = MikanCalendarParser.Parse(doc.DocumentNode.OuterHtml, Root).FirstOrDefault(c => c.Id == id);
+            if (card == null) cache.TryGetValue<AnimeCard>($"mikan-card:{Root}:{id}", out card);
+            if (card == null) throw new InvalidDataException("Mikan 暂未提供此番剧的详情，请刷新番剧日历后重试。");
+            name = card.Name;
+        }
+        var summary = isDetail ? Text(doc.DocumentNode.SelectSingleNode("//*[contains(concat(' ',normalize-space(@class),' '),' header2-desc ')]")) : "";
         var groups = new List<AnimeGroup>();
-        foreach (var group in doc.DocumentNode.SelectNodes("//div[contains(@class,'subgroup-text')]") ?? Enumerable.Empty<HtmlNode>())
+        foreach (var group in (isDetail ? doc.DocumentNode.SelectNodes("//div[contains(@class,'subgroup-text')]") : null) ?? Enumerable.Empty<HtmlNode>())
         {
             var link = group.SelectSingleNode(".//a[contains(@class,'mikan-rss')]");
             var title = Text(group.SelectSingleNode(".//a[not(contains(@class,'mikan-rss'))]"));
-            if (link != null) groups.Add(new(title.Length == 0 ? "全部字幕组" : title, Absolute(link.GetAttributeValue("href", ""))));
+            var href = HtmlEntity.DeEntitize(link?.GetAttributeValue("href", "") ?? "");
+            if (title.Length > 0 && href.Length > 0 && Absolute(href) is { Length: > 0 } url) groups.Add(new(title, url));
         }
-        if (groups.Count == 0) groups.Add(new("全部字幕组", Root + "/RSS/Bangumi?bangumiId=" + id));
         TmdbInfo? tmdb = null;
         if (!string.IsNullOrWhiteSpace(store.Read().Settings.TmdbApiKey)) tmdb = await Tmdb(name, ct);
         var detail = new AnimeDetail(id, name, summary, groups, tmdb, null);

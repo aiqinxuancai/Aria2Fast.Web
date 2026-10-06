@@ -20,6 +20,7 @@ public sealed class LocalAriaService(StateStore store, ILogger<LocalAriaService>
         try
         {
             await StopAsync(ct);
+            AppliedStartupOptions = null;
             var state = store.Read();
             var settings = state.Settings;
             LocalAriaOptions.Validate(settings);
@@ -55,11 +56,15 @@ public sealed class LocalAriaService(StateStore store, ILogger<LocalAriaService>
             process.ErrorDataReceived += (_, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) logger.LogWarning("aria2: {Message}", e.Data); };
             process.OutputDataReceived += (_, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) logger.LogInformation("aria2: {Message}", e.Data); };
             process.Start();
-            AppliedStartupOptions = StartupSignature(settings);
             process.BeginErrorReadLine();
             process.BeginOutputReadLine();
-            await Task.Delay(400, ct);
-            if (process.HasExited) throw new InvalidOperationException($"aria2 提前退出，退出码 {process.ExitCode}");
+            await WaitForRpc(ct);
+            AppliedStartupOptions = StartupSignature(settings);
+        }
+        catch (OperationCanceledException)
+        {
+            Stop();
+            throw;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -72,6 +77,38 @@ public sealed class LocalAriaService(StateStore store, ILogger<LocalAriaService>
             store.Log(Error, "error");
         }
         finally { gate.Release(); }
+    }
+
+    private async Task WaitForRpc(CancellationToken ct)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+        var rpc = new AriaRpc(store, new HttpGateway(store));
+        Exception? lastError = null;
+        try
+        {
+            while (true)
+            {
+                timeout.Token.ThrowIfCancellationRequested();
+                if (process!.HasExited)
+                    throw new InvalidOperationException($"aria2 提前退出，退出码 {process.ExitCode}");
+                try
+                {
+                    var version = await rpc.Call("getVersion", nodeId: "local", ct: timeout.Token);
+                    if (string.IsNullOrWhiteSpace(version["version"]?.ToString()))
+                        throw new InvalidOperationException("aria2 RPC 未返回版本信息");
+                    if (process.HasExited)
+                        throw new InvalidOperationException($"aria2 提前退出，退出码 {process.ExitCode}");
+                    return;
+                }
+                catch (HttpRequestException ex) { lastError = ex; }
+                await Task.Delay(100, timeout.Token);
+            }
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new TimeoutException("等待本地 aria2 RPC 就绪超时（15 秒）", lastError);
+        }
     }
 
     private void Stop()

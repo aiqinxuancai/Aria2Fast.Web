@@ -25,6 +25,13 @@ def main():
         day_order = [weekdays.index(c['day']) if c['day'] in weekdays else 7 for c in cards]
         assert day_order == sorted(day_order), 'Calendar is not ordered by weekday'
         assert all(isinstance(c['hasReleases'], bool) for c in cards)
+        unpublished = next((c for c in cards if not c['hasReleases']), None)
+        if unpublished:
+            unreleased_detail = api('/anime/' + unpublished['id'] + '?generateAi=false')
+            assert unreleased_detail['name'] == unpublished['name'], unreleased_detail
+            assert unreleased_detail['groups'] == [], unreleased_detail
+            report.update(unpublishedId=unpublished['id'], unpublishedName=unreleased_detail['name'],
+                          unpublishedSummaryAvailable=bool(unreleased_detail['summary']))
         published = next(c for c in cards if c['hasReleases'])
         detail = api('/anime/' + published['id'])
         assert detail['name'] and detail['groups'], detail
