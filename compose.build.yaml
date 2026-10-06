@@ -1,0 +1,6 @@
+# Optional source build: docker compose -f compose.yaml -f compose.build.yaml up -d --build
+services:
+  aria2fast:
+    image: aria2fast-web:local
+    build: .
+    pull_policy: build

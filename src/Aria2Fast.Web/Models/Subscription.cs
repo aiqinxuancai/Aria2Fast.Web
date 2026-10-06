@@ -14,7 +14,7 @@ public sealed class Subscription
     public bool IsFilterRegex { get; set; }
     public bool AutoDir { get; set; }
     public bool Enabled { get; set; } = true;
-    public bool SkipExisting { get; set; } = true;
+    public bool SkipExisting { get; set; }
     public bool Initialized { get; set; }
     public DateTimeOffset? LastChecked { get; set; }
     public string? LastError { get; set; }

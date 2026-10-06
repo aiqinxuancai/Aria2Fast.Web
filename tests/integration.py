@@ -268,6 +268,20 @@ def main():
         api('/subscriptions/check', 'POST', {'id': sub['id']})
         history = api('/subscriptions')[0]['history']
         assert len(history) == 2 and history[-1]['gid']
+        replay = api('/subscriptions/' + sub['id'] + '/redownload', 'POST')
+        assert replay == {'submitted': 2, 'skipped': 0, 'errors': []}, replay
+        replayed = api('/subscriptions')[0]
+        assert len(replayed['history']) == 4 and all(h['gid'] for h in replayed['history'][-2:])
+        assert api('/subscriptions/check', 'POST', {'id': sub['id']})['submitted'] == 0
+        api('/subscriptions', 'POST', {**replayed, 'enabled': False, 'excludeFilter': '- 02'})
+        filtered = api('/subscriptions/' + sub['id'] + '/redownload', 'POST')
+        assert filtered == {'submitted': 1, 'skipped': 0, 'errors': []}, filtered
+        assert not api('/subscriptions')[0]['enabled']
+        api('/subscriptions/missing/redownload', 'POST', expected=400)
+        fresh = api('/subscriptions', 'POST', {'name': '默认补齐测试', 'url': fixture + '/feed?fresh=1', 'nodeId': node})
+        assert fresh['skipExisting'] is False
+        assert api('/subscriptions/check', 'POST', {'id': fresh['id']})['submitted'] == 2
+        assert api('/subscriptions/check', 'POST', {'id': fresh['id']})['submitted'] == 0
         calendar = api('/anime?year=2026&season=' + parse.quote('秋'))
         assert [c['id'] for c in calendar] == ['123', '456', '789'], calendar
         assert [c['day'] for c in calendar] == ['星期一', '星期三', '星期日']

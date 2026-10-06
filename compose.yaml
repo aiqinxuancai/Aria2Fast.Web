@@ -1,7 +1,6 @@
 services:
   aria2fast:
-    image: ${ARIA2FAST_IMAGE:-aria2fast-web:local}
-    build: .
+    image: ${ARIA2FAST_IMAGE:-ghcr.io/aiqinxuancai/aria2fast.web:latest}
     restart: unless-stopped
     ports:
       - "${ARIA2FAST_PORT:-8080}:8080"

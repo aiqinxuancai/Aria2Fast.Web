@@ -16,9 +16,11 @@
 
 ## Docker
 
-复制 .env.example 为 .env，填写 ARIA2FAST_PASSWORD，然后执行 docker compose up -d --build。镜像内安装真实 aria2 执行文件，以非 root 用户运行，只公开 Web 8080 端口；RPC 保持容器内部监听。
+复制 .env.example 为 .env，填写 ARIA2FAST_PASSWORD，然后执行 docker compose pull 和 docker compose up -d。默认 compose.yaml 仅拉取 GHCR 镜像，可直接用于 Unraid Compose Manager，无需源码或 Dockerfile。镜像内安装真实 aria2 执行文件，以非 root 用户运行，只公开 Web 8080 端口；RPC 保持容器内部监听。
 
 使用 GHCR：将 .env 中 ARIA2FAST_IMAGE 设置为 ghcr.io/你的组织或用户名/仓库名:v1.0.0（仓库名须小写），执行 docker compose pull，然后 docker compose up -d --no-build。
+
+从源码本地构建：在含 Dockerfile 的完整项目根目录执行 docker compose -f compose.yaml -f compose.build.yaml up -d --build。本地构建配置单独放在 compose.build.yaml，镜像部署时不要启用此覆盖文件。旧版配置请移除 build: .；若另有 pull_policy: build 也应移除，否则管理器可能跳过拉取并尝试构建。
 
 数据卷 app-data 映射 /data，downloads 映射 /downloads。查看随机初始密码：docker compose exec aria2fast cat /data/initial-password.txt。可将命名卷改为宿主机目录，确保容器 app 用户可读写。更新镜像时保留两个卷。不要使用 down -v 删除需要保留的数据。
 
@@ -36,7 +38,7 @@
 
 - HTTP / FTP / Magnet 批量添加，Torrent / Metalink 上传；进度、速度、暂停/继续、批量移除、队列置顶、限速、Tracker、种子选文件及 Peers。
 - 本地 Aria2 生命周期管理、会话保存、远程节点管理及切换；本地全局参数在重启后恢复。
-- RSS / Atom 自动轮询、关键词 OR / 正则 / 排除过滤、匹配预览、首次跳过已有内容、下载历史去重、季度目录、AI 按作品分目录。
+- RSS / Atom 自动轮询、关键词 OR / 正则 / 排除过滤、匹配预览；新订阅默认补齐已有资源，可选仅追更；支持重新下载全部匹配资源、下载历史去重、季度目录、AI 按作品分目录。
 - Mikan 季度与星期浏览、搜索、字幕组订阅、单条资源下载；可选 TMDB 评分/投票/热度/简介、AI 翻译与评析、Tavily 参考搜索。
 - OpenAI Chat Completions、Responses、Claude Messages、Gemini 四类 AI 协议；多组配置管理。
 - 已完成本地文件浏览器取回、AI 重命名预览与确认；PushDeer 下载完成推送、活动记录。

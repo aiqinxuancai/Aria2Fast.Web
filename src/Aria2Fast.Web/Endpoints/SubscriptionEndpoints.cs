@@ -22,7 +22,8 @@ public static class SubscriptionEndpoints
             return input;
         });
         api.MapDelete("/subscriptions/{id}", (string id, StateStore store) => { store.Update(s => s.Subscriptions.RemoveAll(x => x.Id == id)); return Results.Ok(); });
-        api.MapPost("/subscriptions/check", async (CheckRequest input, SubscriptionService service, CancellationToken ct) => { await service.Check(input.Id, ct); return Results.Ok(); });
+        api.MapPost("/subscriptions/check", (CheckRequest input, SubscriptionService service, CancellationToken ct) => service.Check(input.Id, ct));
+        api.MapPost("/subscriptions/{id}/redownload", (string id, SubscriptionService service, CancellationToken ct) => service.Check(id, ct, redownload: true));
         api.MapPost("/subscriptions/preview", async (PreviewRequest input, FeedService feeds, CancellationToken ct) =>
         {
             var feed = await feeds.Fetch(input.Url, ct);
