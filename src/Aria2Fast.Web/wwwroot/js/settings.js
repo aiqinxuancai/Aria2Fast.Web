@@ -22,6 +22,7 @@ export async function settings(){
   const navItems=document.querySelectorAll('.settings-nav-item');
   const sections=document.querySelectorAll('.settings-section');
   navItems.forEach(item=>{
+    item.href='#settings?section='+encodeURIComponent(item.dataset.section);
     item.onclick=e=>{
       e.preventDefault();
       const section=item.dataset.section;
@@ -31,13 +32,14 @@ export async function settings(){
         if(s.dataset.section===section){s.hidden=false;s.scrollIntoView({behavior:'smooth',block:'start'});}
         else s.hidden=true;
       });
-      window.location.hash=section;
+      // Keep the app route on settings without rerendering unsaved fields.
+      window.history.replaceState(null,'',item.href);
     };
   });
   // Activate section from hash
   if(window.location.hash){
-    const hash=window.location.hash.slice(1);
-    const targetNav=document.querySelector(`.settings-nav-item[data-section="${hash}"]`);
+    const section=new URLSearchParams(window.location.hash.split('?')[1]).get('section');
+    const targetNav=[...navItems].find(item=>item.dataset.section===section);
     if(targetNav)targetNav.click();
   }
   const save=async()=>{const data=formData($('#settings-form'));const settings={...state.config.settings,...data,oss:{autoSync:data.ossAutoSync,intervalMinutes:data.ossIntervalMinutes,endpoint:data.ossEndpoint,bucket:data.ossBucket,accessKeyId:data.ossAccessKeyId,accessKeySecret:data.ossAccessKeySecret,objectKey:data.ossObjectKey}};for(const key of Object.keys(settings))if(key.startsWith('oss')&&key!=='oss')delete settings[key];await api('/settings','PUT',settings);await refreshConfig();};
