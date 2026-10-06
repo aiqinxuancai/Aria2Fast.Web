@@ -87,6 +87,15 @@ public static class ConfigurationEndpoints
             });
             return profile;
         });
+        api.MapPost("/ai/profiles/{id}/select", (string id, StateStore store) =>
+        {
+            store.Update(s =>
+            {
+                if (!s.Settings.AiProfiles.Any(p => p.Id == id)) throw new ArgumentException("AI 接口不存在");
+                s.Settings.SelectedAiId = id;
+            });
+            return Results.Ok();
+        });
         api.MapDelete("/ai/profiles/{id}", (string id, StateStore store) =>
         {
             store.Update(s =>

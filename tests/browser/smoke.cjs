@@ -174,6 +174,23 @@ const root = path.resolve(__dirname, '../..');
     await page.locator('#ai-form input[name=name]').fill('编辑后的接口');
     await page.locator('#ai-form button[type=submit]').click();
     await page.getByText('编辑后的接口',{exact:true}).waitFor();
+    assert.equal(await page.locator('select[name=selectedAiId]').count(),0);
+    const secondAi=await page.evaluate(async fixture=>{
+      const response=await fetch('/api/ai/profiles',{method:'POST',headers:{'Content-Type':'application/json','X-Aria2Fast':'1'},body:JSON.stringify({name:'备用模型',baseUrl:fixture,modelName:'second-model',apiKey:'test-key',protocol:'OpenAIChatCompletions'})});
+      return response.json();
+    },info.fixture);
+    await page.reload();
+    await page.locator('[name=subscriptionIntervalMinutes]').fill('27');
+    await page.locator('[data-select-ai="'+secondAi.id+'"]').click();
+    await page.locator('[data-select-ai="'+secondAi.id+'"][aria-pressed=true]').waitFor();
+    assert.equal(await page.locator('[name=subscriptionIntervalMinutes]').inputValue(),'27');
+    assert.equal(await page.evaluate(()=>fetch('/api/state').then(r=>r.json()).then(s=>s.settings.selectedAiId)),secondAi.id);
+    await page.reload();
+    await page.locator('[data-select-ai="'+secondAi.id+'"][aria-pressed=true]').waitFor();
+    page.once('dialog',dialog=>dialog.accept());
+    await page.locator('[data-delete-ai="'+secondAi.id+'"]').click();
+    await page.locator('[data-select-ai][aria-pressed=true]').waitFor();
+
     await page.locator('nav a[data-page=anime]').click();
     await page.locator('.anime-card[data-anime="123"]').click();
     await page.locator('#translate-summary').click();
