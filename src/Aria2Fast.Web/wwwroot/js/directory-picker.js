@@ -50,7 +50,7 @@ export function bindDirectory(form,subscription=false){
 export function previewDialog(title,html){
   const dialog=document.createElement('dialog');dialog.id='feed-preview';
   dialog.setAttribute('aria-label',title);
-  dialog.innerHTML='<div class="dialog-header"><h2>'+esc(title)+'</h2><button class="icon-button" aria-label="关闭预览">×</button></div><div class="preview-body">'+html+'<div class="form-actions"><button data-back>返回编辑</button></div></div>';
+  dialog.innerHTML='<div class="dialog-header"><h2>'+esc(title)+'</h2><button class="icon-button" aria-label="关闭预览"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div><div class="preview-body">'+html+'<div class="form-actions"><button data-back>返回编辑</button></div></div>';
   document.body.append(dialog);
   dialog.querySelector('.icon-button').onclick=()=>dialog.close();
   dialog.querySelector('[data-back]').onclick=()=>dialog.close();

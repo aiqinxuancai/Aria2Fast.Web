@@ -30,3 +30,5 @@ dialog[inert]{overflow:hidden}
 .anime-review{border-top:1px solid var(--line);padding-top:20px;overflow-wrap:anywhere}.anime-review section{margin-top:20px}.anime-review h4{margin:0 0 8px}.anime-review .review-score{margin:12px 0;font-weight:600}.anime-review details{margin-top:16px;font-size:12px}.anime-review summary{cursor:pointer;color:var(--muted)}.anime-review li{margin:8px 0;line-height:1.7}
 
 .log-row{align-items:start}.log-row .badge{justify-self:start;align-self:start;justify-content:center;min-width:44px;line-height:1.4;padding:4px 8px;margin-top:1px}.log-row:last-child{border-bottom:0}.log-row .badge.success{color:#278047;background:color-mix(in srgb,#4caf50 14%,transparent)}.log-row .badge.warning{color:#a66a12;background:color-mix(in srgb,#e8a52b 14%,transparent)}.log-row>span:last-child{min-width:0;white-space:pre-wrap}
+
+.dialog-header .icon-button{display:grid;place-items:center;padding:0;line-height:1;transform:none}.dialog-header .icon-button svg{display:block;pointer-events:none}
