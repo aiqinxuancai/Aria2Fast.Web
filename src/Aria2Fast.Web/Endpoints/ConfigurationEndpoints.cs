@@ -16,7 +16,7 @@ public static class ConfigurationEndpoints
         });
         api.MapPut("/desktop/autostart", (DesktopStartup input, DesktopService desktop) => { desktop.SetAutoStart(input.Enabled); return desktop.Status(); });
         api.MapPost("/desktop/shortcut", async (DesktopService desktop, CancellationToken ct) => new { path = await desktop.CreateShortcut(ct) });
-        api.MapPut("/settings", (WebSettings input, StateStore store) =>
+        api.MapPut("/settings", async (WebSettings input, StateStore store, LocalAriaService local, AriaRpc rpc, CancellationToken ct) =>
         {
             if (input.SubscriptionIntervalMinutes is < 1 or > 1440 || input.LocalRpcPort is < 1024 or > 65535) throw new ArgumentException("轮询间隔或 RPC 端口无效");
             Validation.HttpUrl(input.MikanBaseUrl); Validation.HttpUrl(input.PushEndpoint);
@@ -34,6 +34,16 @@ public static class ConfigurationEndpoints
             var tuning = input.LocalOptions.Where(x => LocalAriaOptions.Defaults.ContainsKey(x.Key)).ToDictionary();
             input.LocalOptions = tuning;
             LocalAriaOptions.Validate(input);
+            var limits = tuning.Where(x => x.Key is "max-overall-download-limit" or "max-overall-upload-limit").ToDictionary();
+            if (local.Running && limits.Count > 0)
+            {
+                // Overall limits apply to active transfers too; per-task defaults do not.
+                try { await rpc.Call("changeGlobalOption", [limits], "local", ct); }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    throw new InvalidOperationException("限速未能应用到本地 aria2，设置未保存：" + ex.Message, ex);
+                }
+            }
             store.Update(s =>
             {
                 input.LocalOptions = new(s.Settings.LocalOptions);

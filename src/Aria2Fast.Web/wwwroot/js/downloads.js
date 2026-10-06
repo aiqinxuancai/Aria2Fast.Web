@@ -74,7 +74,7 @@ async function detail(gid){
 async function options(gid=null){
   const node=state.config.selectedNodeId;const config=await api('/options?node='+encodeURIComponent(node)+(gid?'&gid='+gid:''));
   if(!gid&&node==='local')config['bt-tracker']=state.config.settings.localOptions?.['bt-tracker']||'';
-  const fields=gid?[['max-download-limit','下载限速'],['max-upload-limit','上传限速'],['split','分片数'],['seed-ratio','分享率']]:[['max-download-limit','下载限速'],['max-upload-limit','上传限速'],['max-concurrent-downloads','同时下载数'],['seed-ratio','分享率']];
-  modal(gid?'任务参数':'全局下载参数','<form id="options-form"><p class="hint">限速支持 K / M，0 表示不限速。参数即时应用到当前节点。</p><div class="form-grid">'+fields.map(([key,label])=>field(label,key,config[key]||'0')).join('')+'<label class="full">手动追加 BT Trackers（逗号分隔）<textarea name="bt-tracker" rows="4">'+esc(config['bt-tracker']||'')+'</textarea></label></div><div class="form-actions"><button type="submit" class="primary">保存参数</button></div></form>');
-  bindForm('#options-form',async(data)=>{await api('/options','POST',{nodeId:node,gid,options:data});closeModal();toast('参数已生效');});
+  const fields=gid?[['max-download-limit','下载限速'],['max-upload-limit','上传限速'],['split','分片数'],['seed-ratio','分享率']]:[['max-overall-download-limit','总下载限速'],['max-overall-upload-limit','总上传限速'],['max-concurrent-downloads','同时下载数'],['seed-ratio','分享率']];
+  modal(gid?'任务参数':'全局下载参数','<form id="options-form"><p class="hint">限速单位为字节/秒，支持 K / M（例如 512K、1M），0 表示不限速。限速保存后即时生效。</p><div class="form-grid">'+fields.map(([key,label])=>field(label,key,config[key]||'0')).join('')+'<label class="full">手动追加 BT Trackers（逗号分隔）<textarea name="bt-tracker" rows="4">'+esc(config['bt-tracker']||'')+'</textarea></label></div><div class="form-actions"><button type="submit" class="primary">保存参数</button></div></form>');
+  bindForm('#options-form',async(data)=>{await api('/options','POST',{nodeId:node,gid,options:data});if(!gid&&node==='local')state.config.settings.localOptions={...state.config.settings.localOptions,...data};closeModal();toast('参数已生效');});
 }

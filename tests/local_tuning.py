@@ -1,10 +1,21 @@
 """Local tuning and tracker lifecycle against the official aria2 executable."""
-from integration import start_app, free_port
+import time
+from integration import start_app, free_port, PAYLOAD
 
 
 def main():
     base, fixture, api, cleanup, data = start_app(True)
     try:
+        # A task created before changing the cap must obey the node-wide limit.
+        added = api('/tasks', 'POST', {'urls': [fixture + '/file-limit.bin'], 'nodeId': 'local', 'options': {'pause': 'true'}})[0]
+        assert not added['error'], added
+        api('/options', 'POST', {'nodeId': 'local', 'options': {'max-overall-download-limit': '8K', 'max-overall-upload-limit': '32K'}})
+        assert api('/options?node=local')['max-overall-upload-limit'] == '32768'
+        api('/tasks/action', 'POST', {'action': 'resume', 'gids': [added['gid']], 'nodeId': 'local'})
+        time.sleep(2)
+        task = api('/tasks/' + added['gid'] + '?node=local')
+        assert task['status'] != 'complete' and int(task['completedLength']) < len(PAYLOAD), task
+        api('/options', 'POST', {'nodeId': 'local', 'options': {'max-overall-download-limit': '0'}})
         settings = api('/state')['settings']
         settings.update(localBtPort=free_port(), localDhtPort=free_port(), trackerAutoUpdate=True,
                         trackerSources=fixture + '/trackers', trackerUpdateHours=24)
@@ -12,6 +23,7 @@ def main():
                                         'split': '16', 'min-split-size': '5M', 'bt-max-peers': '100',
                                         'max-overall-upload-limit': '1M'})
         api('/settings', 'PUT', settings)
+        assert api('/options?node=local')['max-overall-upload-limit'] == '1048576', 'Upload cap must apply without restarting'
         diagnostic = api('/local/diagnostics')
         assert diagnostic['restartRequired'], diagnostic
         api('/settings', 'PUT', {**settings, 'localBtPort': settings['localRpcPort']}, expected=400)

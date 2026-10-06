@@ -18,7 +18,7 @@ export function localTuning(s,trackers){
     fields.map(([key,label,value,type,attrs])=>field(label,'tuning-'+key,options[key]??value,type,attrs)).join('')+
     check('启用 DHT 节点发现','tuning-enable-dht',options['enable-dht']!=='false')+
     check('启用 PEX 节点交换','tuning-enable-peer-exchange',options['enable-peer-exchange']!=='false')+
-    '</div><p class="hint">保存后重启本地服务生效。HTTP 连接数与分片数不会增加 BT 节点。上传跑满时，可尝试限制为实测上行的 70%～80%。</p><p class="hint">Docker 和路由器需映射相同的 BT TCP / DHT UDP 端口，RPC 端口仅用于管理。</p><button type="button" id="diagnose-local">连接诊断</button></div>'+
+    '</div><p class="hint">总上传/下载限速保存后立即应用到运行中的本地服务（包括已有任务），单位为字节/秒，支持 K / M；服务未启动时将在启动后应用。其他调优参数保存后重启生效。HTTP 连接数与分片数不会增加 BT 节点。上传跑满时，可尝试限制为实测上行的 70%～80%。</p><p class="hint">Docker 和路由器需映射相同的 BT TCP / DHT UDP 端口，RPC 端口仅用于管理。</p><button type="button" id="diagnose-local">连接诊断</button></div>'+
     '<div class="settings-group"><h4>公共 Tracker</h4><div class="form-grid">'+
     check('自动更新并添加公共 Tracker','trackerAutoUpdate',s.trackerAutoUpdate)+
     field('更新间隔（小时）','trackerUpdateHours',s.trackerUpdateHours,'number','min="1" max="168"')+
