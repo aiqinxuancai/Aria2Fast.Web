@@ -9,6 +9,26 @@ namespace Aria2Fast.Web.Services;
 
 public sealed class AiService(StateStore store, HttpGateway http)
 {
+    private string TranslationKey(string text) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text)));
+
+    public string? CachedTranslation(string text) => store.Read().Translations.GetValueOrDefault(TranslationKey(text));
+
+    public AiReview? CachedReview(string id)
+    {
+        var state = store.Read();
+        return state.Reviews.GetValueOrDefault(id + ":" + state.Settings.SelectedAiId);
+    }
+
+    public async Task<string> Translate(string text, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(text)) throw new ArgumentException("简介为空");
+        var key = TranslationKey(text);
+        if (store.Read().Translations.TryGetValue(key, out var cached)) return cached;
+        var translated = await Send(text, "将动漫简介翻译为自然简体中文，保留原意，不补充事实。只输出译文。", ct);
+        store.Update(s => s.Translations[key] = translated);
+        return translated;
+    }
+
     public async Task<string> Send(string prompt, string instruction, CancellationToken ct = default, string? profileId = null)
     {
         var settings = store.Read().Settings;

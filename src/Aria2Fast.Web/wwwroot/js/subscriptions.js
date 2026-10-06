@@ -1,7 +1,9 @@
 import {directoryField,bindDirectory,rememberDirectory,previewDialog} from './directory-picker.js';
 import {$,esc,state,api,toast,run,modal,closeModal,heading,empty,field,check,bindForm,nodeOptions,time} from './core.js';
 let list=[];
+let removeMenuListeners=()=>{};
 export async function subscriptions(){
+  removeMenuListeners();
   list=await api('/subscriptions');if(state.page!=='subscriptions')return;
   $('#content').innerHTML=heading('我的订阅','更新自动发现，喜欢的剧集不再错过。','<button id="check-subs">↻ 立即检查</button><button id="new-sub" class="primary">＋ 添加订阅</button>')+'<div class="callout">每 '+state.config.settings.subscriptionIntervalMinutes+' 分钟自动检查。新订阅默认下载源中已有的匹配资源；重新下载会忽略订阅历史，再次提交源中全部匹配资源。</div><div class="card-grid">'+list.map(s=>'<article class="sub-card"><div class="sub-top"><div class="sub-icon">◉</div><span class="badge '+(s.lastError?'error':s.enabled?'':'paused')+'">'+(s.lastError?'检查失败':s.enabled?'自动追更':'已暂停')+'</span></div><h3>'+esc(s.name)+'</h3><p>'+esc(state.config.nodes.find(n=>n.id===s.nodeId)?.name||s.nodeId)+' · '+s.history.filter(h=>!h.skipped).length+' 次提交<br>最近检查：'+time(s.lastChecked)+'<br>过滤：'+esc(s.filter||'全部内容')+'</p>'+(s.lastError?'<div class="error-text hint">'+esc(s.lastError)+'</div>':'')+'<div class="toolbar sub-actions"><button data-edit="'+esc(s.id)+'">编辑</button><details class="sub-more"><summary>更多</summary><div class="sub-menu"><button data-history="'+esc(s.id)+'">查看历史</button><button data-check="'+esc(s.id)+'">立即检查</button><button data-redownload="'+esc(s.id)+'">重新下载全部</button><button data-toggle="'+esc(s.id)+'">'+(s.enabled?'暂停订阅':'启用订阅')+'</button><button data-delete="'+esc(s.id)+'" class="danger">删除订阅</button></div></details></div></article>').join('')+'</div>'+(!list.length?'<div class="panel">'+empty('开始你的第一份订阅','添加 RSS 地址，或前往「发现番剧」选择喜欢的作品。','◉')+'</div>':'');
   $('#new-sub').onclick=()=>editSubscription();$('#check-subs').onclick=e=>run(async()=>{showCheck(await api('/subscriptions/check','POST',{}));await subscriptions();},e.target);
@@ -15,6 +17,17 @@ export async function subscriptions(){
   $('#content').querySelectorAll('[data-toggle]').forEach(b=>b.onclick=()=>run(async()=>{const s=list.find(x=>x.id===b.dataset.toggle);await api('/subscriptions','POST',{...s,enabled:!s.enabled});await subscriptions();},b));
   $('#content').querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>run(async()=>{if(!confirm('删除此订阅？已下载任务和文件不会被删除。'))return;await api('/subscriptions/'+b.dataset.delete,'DELETE');await subscriptions();},b));
   $('#content').querySelectorAll('[data-history]').forEach(b=>b.onclick=()=>{const s=list.find(x=>x.id===b.dataset.history);modal(s.name+' · 订阅历史',s.history.length?s.history.slice().reverse().map(h=>'<div class="file-row"><span>'+esc(h.title)+'<br><small class="muted">'+time(h.time)+' · '+(h.skipped?'首次检查跳过（未下载）':'已提交下载')+'</small></span></div>').join(''):empty('暂无记录','等待下一次订阅检查。','◉'));});
+  const closeMenus=event=>{
+    if(event.type==='keydown'&&event.key!=='Escape')return;
+    const current=event.target.closest('.sub-more');
+    document.querySelectorAll('.sub-more[open]').forEach(menu=>{
+      if(event.type==='click'&&menu===current&&!event.target.closest('.sub-menu button'))return;
+      menu.open=false;
+      if(event.type==='keydown')menu.querySelector('summary').focus();
+    });
+  };
+  document.addEventListener('click',closeMenus);document.addEventListener('keydown',closeMenus);
+  removeMenuListeners=()=>{document.removeEventListener('click',closeMenus);document.removeEventListener('keydown',closeMenus);};
 }
 
 export function editSubscription(source={}){

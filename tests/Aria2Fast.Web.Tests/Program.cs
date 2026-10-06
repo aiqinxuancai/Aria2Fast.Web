@@ -46,6 +46,24 @@ try
 {
     var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["ARIA2FAST_DATA_DIR"] = temporary }).Build();
     var store = new StateStore(config);
+    Test("AI results survive restart and enrich an already cached anime detail", () =>
+    {
+        const string original = "Original summary";
+        const string translated = "Cached translation";
+        var key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(original)));
+        var review = new Aria2Fast.Web.Models.AiReview(8, "Cached review", DateTimeOffset.UtcNow, "Source link");
+        store.Update(s => { s.Settings.MikanBaseUrl = "https://example.com"; s.Translations[key] = translated; s.Reviews["123:"] = review; });
+        var restarted = new StateStore(config);
+        var ai = new AiService(restarted, new HttpGateway(restarted));
+        Assert(ai.Translate(original, CancellationToken.None).GetAwaiter().GetResult() == translated);
+        Assert(ai.CachedTranslation("Changed summary") is null);
+        using var memory = new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions());
+        using (var entry = memory.CreateEntry("detail:https://example.com:123"))
+            entry.Value = new Aria2Fast.Web.Models.AnimeDetail("123", "Title", original, [], null, null);
+        var mikan = new MikanService(restarted, new HttpGateway(restarted), memory, ai);
+        var detail = mikan.Detail("123", CancellationToken.None).GetAwaiter().GetResult();
+        Assert(detail.Summary == translated && detail.Review == review);
+    });
     Test("Atomic persistence and snapshot isolation", () => { store.Update(s => s.Settings.MikanBaseUrl = "https://example.com"); var copy = store.Read(); copy.Settings.MikanBaseUrl = "changed"; Assert(new StateStore(config).Read().Settings.MikanBaseUrl == "https://example.com"); });
     Test("Failed state update does not change persisted data", () => { Throws<InvalidOperationException>(() => store.Update(s => { s.SelectedNodeId = "bad"; throw new InvalidOperationException(); })); Assert(store.Read().SelectedNodeId == "local"); });
     Test("Desktop backup imports and deduplicates", () => { var backup = new BackupService(store); const string json = "[{\"Url\":\"https://example.com/rss\",\"Name\":\"测试\",\"Path\":\"/downloads\",\"AlreadyAddedDownloadModel\":[{\"Url\":\"https://example.com/old\",\"Name\":\"旧集\"}]}]"; Assert(backup.Import(json) == 1); Assert(backup.Import(json) == 0); var item = store.Read().Subscriptions.Single(); Assert(item.Initialized && item.Directory == "/downloads" && item.History.Count == 1); });

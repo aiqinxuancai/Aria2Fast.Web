@@ -12,6 +12,7 @@ public sealed class AppState
     public List<DownloadRecord> Downloads { get; set; } = [];
     public List<Notice> Notices { get; set; } = [];
     public Dictionary<string, AiReview> Reviews { get; set; } = [];
+    public Dictionary<string, string> Translations { get; set; } = [];
     public string PasswordHash { get; set; } = "";
 }
 

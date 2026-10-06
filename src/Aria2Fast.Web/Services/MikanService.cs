@@ -49,7 +49,7 @@ public sealed class MikanService(StateStore store, HttpGateway http, IMemoryCach
     {
         if (!Regex.IsMatch(id, @"^\d{1,12}$")) throw new ArgumentException("番剧 ID 无效");
         var key = $"detail:{Root}:{id}";
-        if (cache.TryGetValue<AnimeDetail>(key, out var cached)) return cached!;
+        if (cache.TryGetValue<AnimeDetail>(key, out var cached)) return await Enrich(cached!, ct);
         var doc = new HtmlDocument();
         doc.LoadHtml(await http.GetTextAsync(Root + "/Home/Bangumi/" + id, ct));
         var name = Text(doc.DocumentNode.SelectSingleNode("//p[contains(@class,'bangumi-title')] | //div[contains(@class,'bangumi-title')] | //h1"));
@@ -65,13 +65,21 @@ public sealed class MikanService(StateStore store, HttpGateway http, IMemoryCach
         if (groups.Count == 0) groups.Add(new("全部字幕组", Root + "/RSS/Bangumi?bangumiId=" + id));
         TmdbInfo? tmdb = null;
         if (!string.IsNullOrWhiteSpace(store.Read().Settings.TmdbApiKey)) tmdb = await Tmdb(name, ct);
-        var settings = store.Read().Settings;
-        if (settings.TranslateSummary && !string.IsNullOrWhiteSpace(summary)) summary = await ai.Send(summary, "将动漫简介翻译为自然简体中文，保留原意，不补充事实。只输出译文。", ct);
-        AiReview? review = null;
-        if (settings.AutoReview) review = await ai.Review(id, name, summary, ct);
-        var detail = new AnimeDetail(id, name, summary, groups, tmdb, review);
+        var detail = new AnimeDetail(id, name, summary, groups, tmdb, null);
         cache.Set(key, detail, TimeSpan.FromMinutes(30));
-        return detail;
+        return await Enrich(detail, ct);
+    }
+
+    private async Task<AnimeDetail> Enrich(AnimeDetail detail, CancellationToken ct)
+    {
+        var settings = store.Read().Settings;
+        var original = string.IsNullOrWhiteSpace(detail.Summary) ? detail.Tmdb?.Overview ?? "" : detail.Summary;
+        var summary = ai.CachedTranslation(original) ?? original;
+        if (settings.TranslateSummary && summary == original && !string.IsNullOrWhiteSpace(original))
+            summary = await ai.Translate(original, ct);
+        var review = ai.CachedReview(detail.Id);
+        if (settings.AutoReview && review is null) review = await ai.Review(detail.Id, detail.Name, original, ct);
+        return detail with { Summary = summary, Review = review, OriginalSummary = original };
     }
 
     private async Task<TmdbInfo?> Tmdb(string title, CancellationToken ct)

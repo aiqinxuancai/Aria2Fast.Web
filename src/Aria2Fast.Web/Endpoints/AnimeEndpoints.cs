@@ -11,9 +11,9 @@ public static class AnimeEndpoints
         api.MapPost("/anime/{id}/review", async (string id, MikanService mikan, AiService ai, CancellationToken ct) =>
         {
             var detail = await mikan.Detail(id, ct);
-            return await ai.Review(id, detail.Name, detail.Summary + "\n" + detail.Tmdb?.Overview, ct);
+            return await ai.Review(id, detail.Name, detail.OriginalSummary + "\n" + detail.Tmdb?.Overview, ct);
         });
-        api.MapPost("/anime/translate", async (TranslateRequest input, AiService ai, CancellationToken ct) => new { text = await ai.Send(input.Text, "翻译成自然简体中文，仅输出译文。", ct) });
+        api.MapPost("/anime/translate", async (TranslateRequest input, AiService ai, CancellationToken ct) => new { text = await ai.Translate(input.Text, ct) });
     }
     public sealed record TranslateRequest(string Text);
 }
