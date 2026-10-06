@@ -22,8 +22,8 @@ public sealed class WebSettings
     public bool LocalEnabled { get; set; } = true;
     public string Aria2Executable { get; set; } = "";
     public int LocalRpcPort { get; set; } = 6800;
-    public int LocalBtPort { get; set; } = 6888;
-    public int LocalDhtPort { get; set; } = 6888;
+    public int LocalBtPort { get; set; } = 16888;
+    public int LocalDhtPort { get; set; } = 16888;
     public bool TrackerAutoUpdate { get; set; }
     public string TrackerSources { get; set; } = "https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt";
     public int TrackerUpdateHours { get; set; } = 24;

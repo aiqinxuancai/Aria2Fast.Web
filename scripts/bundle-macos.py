@@ -27,7 +27,10 @@ def bundle(original):
     shutil.copy2(original, target)
     target.chmod(0o755)
     copied[original] = target
-    subprocess.run(['codesign', '--remove-signature', str(target)], capture_output=True)
+    # Do not strip the Homebrew signature first: codesign --remove-signature
+    # can leave __LINKEDIT padding that Apple's install_name_tool rejects.
+    # Apply all load-command edits together, then replace the invalidated signature.
+    edits = []
     lines = command('otool', '-L', str(original)).splitlines()[1:]
     for line in lines:
         dep = line.strip().split(' (')[0]
@@ -49,19 +52,22 @@ def bundle(original):
         if dependency.resolve() == original:
             continue
         packaged = bundle(dependency)
-        subprocess.run(['install_name_tool', '-change', dep, '@loader_path/' + packaged.name, str(target)], check=True)
+        edits.extend(['-change', dep, '@loader_path/' + packaged.name])
     if original.suffix == '.dylib':
-        subprocess.run(['install_name_tool', '-id', '@loader_path/' + target.name, str(target)], check=True)
+        edits.extend(['-id', '@loader_path/' + target.name])
+    rpaths = re.findall(r'cmd LC_RPATH\s+cmdsize \d+\s+path (\S+)', command('otool', '-l', str(original)))
+    for path in dict.fromkeys(rpaths):
+        if path.startswith(('/opt/homebrew', '/usr/local', '/Users/')):
+            edits.extend(['-delete_rpath', path])
+    if edits:
+        subprocess.run(['install_name_tool', *edits, str(target)], check=True)
     return target
 
 
 binary = bundle(source)
 for target in copied.values():
-    rpaths = re.findall(r'cmd LC_RPATH\s+cmdsize \d+\s+path (\S+)', command('otool', '-l', str(target)))
-    for path in rpaths:
-        if path.startswith(('/opt/homebrew', '/usr/local', '/Users/')):
-            subprocess.run(['install_name_tool', '-delete_rpath', path, str(target)], check=True)
     subprocess.run(['codesign', '--force', '--sign', '-', str(target)], check=True)
+    subprocess.run(['codesign', '--verify', '--strict', str(target)], check=True)
     dependencies = command('otool', '-L', str(target))
     if any(prefix in dependencies for prefix in ('/opt/homebrew/', '/usr/local/Cellar/', '/usr/local/opt/')):
         raise RuntimeError(f'Non-relocatable library: {target}')

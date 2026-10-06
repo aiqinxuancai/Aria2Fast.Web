@@ -23,6 +23,7 @@ jobs:
       - run: dotnet build -c Release
       - run: dotnet run --project tests/Aria2Fast.Web.Tests -c Release --no-build
       - run: python tests/integration.py
+      - run: python tests/test_bundle_macos.py
       - run: npm install --no-audit --no-fund
         working-directory: tests/browser
       - run: npx playwright install --with-deps chromium
@@ -48,6 +49,24 @@ jobs:
             artifacts/screenshots/
             artifacts/real-*-results.json
           if-no-files-found: ignore
+  macos-bundle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15-intel, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Bundle and verify Homebrew aria2
+        run: |
+          brew install aria2
+          python3 scripts/bundle-macos.py artifacts/aria2
+          mv artifacts/aria2 "${RUNNER_TEMP}/aria2 relocated"
+          cd "${RUNNER_TEMP}"
+          env -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH "${RUNNER_TEMP}/aria2 relocated/aria2c" --version
   docker:
     runs-on: ubuntu-latest
     steps:
