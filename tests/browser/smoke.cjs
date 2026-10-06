@@ -39,6 +39,18 @@ const root = path.resolve(__dirname, '../..');
     await page.locator('nav a[data-page=subscriptions]').click();
     await page.locator('#new-sub').click();
     assert.equal(await page.locator('#sub-form input[name=skipExisting]').isChecked(),false);
+    const includeBox=await page.locator('#sub-form input[name=filter]').boundingBox();
+    const excludeBox=await page.locator('#sub-form input[name=excludeFilter]').boundingBox();
+    assert.equal(includeBox.y,excludeBox.y,'Keyword inputs should align');
+    assert.equal(includeBox.height,excludeBox.height);
+    const regexButton=page.locator('#sub-form [data-regex=isFilterRegex]');
+    await regexButton.scrollIntoViewIfNeeded();
+    const beforeHover=await regexButton.boundingBox();
+    await regexButton.hover();
+    await page.waitForTimeout(200);
+    const afterHover=await regexButton.boundingBox();
+    assert.equal(afterHover.y,beforeHover.y,'Regex hover must not move the button');
+
     await page.locator('#sub-form input[name=name]').fill('浏览器订阅测试');
     await page.locator('#sub-form input[name=url]').fill(info.fixture + '/feed');
     assert.equal(await page.locator('#sub-form input[name=directory]').inputValue(),'/downloads/历史');
