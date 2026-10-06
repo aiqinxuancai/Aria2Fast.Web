@@ -7,12 +7,17 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.RateLimiting;
 
+string? retryUrls = null;
+for (var portAttempt = 0; ; portAttempt++)
+{
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 {
     Args = args,
     ContentRootPath = Directory.Exists(Path.Combine(AppContext.BaseDirectory, "wwwroot")) ? AppContext.BaseDirectory : null
 });
 if (string.IsNullOrWhiteSpace(builder.Configuration["urls"])) builder.WebHost.UseUrls("http://0.0.0.0:8080");
+if (retryUrls is not null) builder.WebHost.UseUrls(retryUrls);
+builder.Services.AddSingleton<DesktopService>();
 builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 24 * 1024 * 1024);
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSingleton<StateStore>();
@@ -58,7 +63,7 @@ builder.Services.AddRateLimiter(o =>
     o.RejectionStatusCode = 429;
     o.AddPolicy("login", c => RateLimitPartition.GetFixedWindowLimiter(c.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
 });
-var app = builder.Build();
+await using var app = builder.Build();
 AuthEndpoints.Initialize(app.Services.GetRequiredService<StateStore>(), builder.Configuration);
 app.Use(async (context, next) =>
 {
@@ -96,6 +101,17 @@ api.MapAnime();
 api.MapFiles();
 app.Map("/api/{**path}", () => Results.NotFound(new { error = "接口不存在" }));
 app.MapFallbackToFile("index.html");
-app.Run();
+app.Lifetime.ApplicationStarted.Register(() => app.Services.GetRequiredService<DesktopService>().Started(app.Urls));
+try
+{
+    await app.RunAsync();
+    break;
+}
+catch (Exception error) when (ListenPorts.InUse(error) && portAttempt < 99 && !builder.Configuration.GetSection("Kestrel:Endpoints").GetChildren().Any())
+{
+    retryUrls = ListenPorts.Next(builder.Configuration["urls"] ?? "http://0.0.0.0:8080");
+    Console.WriteLine("监听端口被占用，重试：" + retryUrls);
+}
+}
 
 public partial class Program;

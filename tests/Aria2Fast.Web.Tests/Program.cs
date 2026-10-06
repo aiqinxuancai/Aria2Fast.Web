@@ -46,6 +46,42 @@ Test("Local tuning preserves overrides and gates automatic trackers", () =>
 });
 
 var temporary = Path.Combine(Path.GetTempPath(), "aria2fast-tests-" + Guid.NewGuid().ToString("N"));
+Test("Desktop features reject Docker, headless override and unsupported platforms", () =>
+{
+    Assert(DesktopService.IsDesktop(true, null, null, null, false));
+    Assert(!DesktopService.IsDesktop(true, "true", null, "true", false));
+    Assert(!DesktopService.IsDesktop(true, null, "TRUE", null, false));
+    Assert(!DesktopService.IsDesktop(true, null, null, "false", false));
+    Assert(!DesktopService.IsDesktop(true, null, null, null, true));
+    Assert(!DesktopService.IsDesktop(false, null, null, null, false));
+});
+Test("Desktop browser URL follows final binding, wildcard and IPv6", () =>
+{
+    Assert(DesktopService.LocalUrl(["http://0.0.0.0:8082"]) == "http://localhost:8082/");
+    Assert(DesktopService.LocalUrl(["http://[::]:8081"]) == "http://localhost:8081/");
+    Assert(DesktopService.LocalUrl(["http://*:9000"]) == "http://localhost:9000/");
+});
+Test("Port increments preserve hosts and reject exhaustion", () =>
+{
+    Assert(ListenPorts.Next("http://127.0.0.1:8080;https://[::]:8443") == "http://127.0.0.1:8081;https://[::]:8444");
+    Assert(ListenPorts.Next("http://*:8080") == "http://*:8081");
+    Throws<InvalidOperationException>(() => ListenPorts.Next("http://localhost:65535"));
+    Assert(!ListenPorts.InUse(new IOException("unrelated failure")));
+    Assert(ListenPorts.InUse(new IOException("wrapped", new Microsoft.AspNetCore.Connections.AddressInUseException("busy"))));
+});
+Test("macOS startup preserves arguments as XML data and runs without Terminal", () =>
+{
+    var xml = System.Xml.Linq.XDocument.Parse(DesktopService.LaunchAgent(["/Apps/A & B/Aria2Fast.Web", "--urls", "http://localhost:8080"], "/Apps/A & B", "/data"));
+    Assert(xml.Descendants("array").Single().Elements("string").First().Value == "/Apps/A & B/Aria2Fast.Web");
+    Assert(xml.Descendants("true").Any());
+    Assert(!xml.ToString().Contains("Terminal"));
+});
+Test("Windows launcher quotes paths and selects hidden window mode", () =>
+{
+    var script = DesktopService.VbsLauncher([@"C:\Apps & Tools\Aria2Fast.Web.exe", "--urls", "http://localhost:8080"], @"C:\Apps & Tools");
+    Assert(script.Contains("\"\"C:\\Apps & Tools\\Aria2Fast.Web.exe\"\"") && script.Contains(", 0, False"));
+    Assert(!script.Contains("cmd.exe"));
+});
 Test("Subscription paths match default, sanitized name, AI and season order", () =>
 {
     Assert(DownloadPaths.Compose("D:\\Downloads\\", "作品:名称", 2, "识别名") == "D:\\Downloads/作品_名称/识别名/Season 2");

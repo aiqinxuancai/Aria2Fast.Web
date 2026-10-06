@@ -14,6 +14,7 @@ WORKDIR /app
 COPY --from=build /out/ ./
 COPY LICENSE.txt THIRD-PARTY-NOTICES.md ./
 ENV ASPNETCORE_URLS=http://0.0.0.0:8080 \
+    ARIA2FAST_DESKTOP=false \
     ARIA2FAST_DATA_DIR=/data \
     ARIA2FAST_DOWNLOAD_DIR=/downloads \
     DOTNET_EnableDiagnostics=0

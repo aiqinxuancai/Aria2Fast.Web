@@ -23,6 +23,7 @@ jobs:
       - run: dotnet build -c Release
       - run: dotnet run --project tests/Aria2Fast.Web.Tests -c Release --no-build
       - run: python tests/integration.py
+      - run: python tests/desktop_startup.py
       - run: python tests/test_bundle_macos.py
       - run: npm install --no-audit --no-fund
         working-directory: tests/browser

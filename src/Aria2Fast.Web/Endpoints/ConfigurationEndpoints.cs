@@ -6,13 +6,16 @@ namespace Aria2Fast.Web.Endpoints;
 
 public static class ConfigurationEndpoints
 {
+    public sealed record DesktopStartup(bool Enabled);
     public static void MapConfiguration(this RouteGroupBuilder api)
     {
-        api.MapGet("/state", (StateStore store, LocalAriaService local, SubscriptionService subs) =>
+        api.MapGet("/state", (StateStore store, LocalAriaService local, SubscriptionService subs, DesktopService desktop) =>
         {
             var s = store.Read();
-            return new { s.Nodes, s.SelectedNodeId, s.Settings, s.Notices, local = new { local.Running, local.Error }, trackers = s.Trackers, checking = subs.Checking };
+            return new { s.Nodes, s.SelectedNodeId, s.Settings, s.Notices, desktop = desktop.Status(), local = new { local.Running, local.Error }, trackers = s.Trackers, checking = subs.Checking };
         });
+        api.MapPut("/desktop/autostart", (DesktopStartup input, DesktopService desktop) => { desktop.SetAutoStart(input.Enabled); return desktop.Status(); });
+        api.MapPost("/desktop/shortcut", async (DesktopService desktop, CancellationToken ct) => new { path = await desktop.CreateShortcut(ct) });
         api.MapPut("/settings", (WebSettings input, StateStore store) =>
         {
             if (input.SubscriptionIntervalMinutes is < 1 or > 1440 || input.LocalRpcPort is < 1024 or > 65535) throw new ArgumentException("轮询间隔或 RPC 端口无效");

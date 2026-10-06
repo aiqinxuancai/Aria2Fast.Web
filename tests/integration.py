@@ -145,7 +145,7 @@ def start_app(real=False):
     logs = open(Path(data.name) / 'app.log', 'w', encoding='utf-8')
     port = free_port()
     base = f'http://127.0.0.1:{port}'
-    env = {**os.environ, 'ARIA2FAST_DATA_DIR': data.name, 'ARIA2FAST_DOWNLOAD_DIR': str(Path(data.name) / 'downloads'), 'ARIA2FAST_PASSWORD': PASSWORD, 'ARIA2FAST_LOCAL_ENABLED': str(real).lower(), 'ASPNETCORE_URLS': base, 'ASPNETCORE_ENVIRONMENT': 'Production'}
+    env = {**os.environ, 'ARIA2FAST_DESKTOP': 'false', 'ARIA2FAST_DATA_DIR': data.name, 'ARIA2FAST_DOWNLOAD_DIR': str(Path(data.name) / 'downloads'), 'ARIA2FAST_PASSWORD': PASSWORD, 'ARIA2FAST_LOCAL_ENABLED': str(real).lower(), 'ASPNETCORE_URLS': base, 'ASPNETCORE_ENVIRONMENT': 'Production'}
     published = os.environ.get('TEST_PUBLISH_DIR')
     if published:
         executable = Path(published).resolve() / ('Aria2Fast.Web.exe' if os.name == 'nt' else 'Aria2Fast.Web')

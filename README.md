@@ -78,3 +78,5 @@
 核心测试无需额外测试框架；接口测试用本地 HTTP fixtures 替代 RPC/Mikan/AI。发行 CI 另用 tests/integration.py --real-aria 和 tests/real_downloads.py 验证真实捆绑 aria2 下载、会话恢复、Torrent 和 Metalink。常规 CI 还运行 tests/browser/real.cjs，通过手机模拟浏览器下载并校验取回文件。Docker CI 验证容器启动、认证和本地 RPC。截图位于 artifacts/screenshots；真实测试命令、实测结果和未验证范围见 docs/TESTING.md。
 
 源代码按项目规范使用 CRLF，C# 文件为 UTF-8 BOM；Shell、Dockerfile 与 workflow 使用适合 Linux 执行的 LF。许可证见 LICENSE.txt，第三方归属见 THIRD-PARTY-NOTICES.md。
+
+桌面端支持自动打开浏览器、端口占用后递增重试、隐藏窗口的登录自启及创建桌面快捷方式。桌面 Release 使用自包含单文件主程序；运行与发布说明见 [桌面集成](docs/DESKTOP.md)。
