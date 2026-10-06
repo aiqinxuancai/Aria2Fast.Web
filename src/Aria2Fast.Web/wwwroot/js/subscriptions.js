@@ -2,10 +2,25 @@ import {directoryField,bindDirectory,rememberDirectory,previewDialog} from './di
 import {$,esc,state,api,toast,run,modal,closeModal,heading,empty,field,check,bindForm,nodeOptions,time} from './core.js';
 let list=[];
 let removeMenuListeners=()=>{};
+function subscriptionCard(s){
+  const id=esc(s.id);
+  const node=state.config.nodes.find(n=>n.id===s.nodeId)?.name||s.nodeId;
+  let source='订阅源';try{source=new URL(s.url).hostname;}catch{}
+  const submitted=s.history.filter(h=>!h.skipped).length;
+  const status=s.enabled?'自动追更':'已暂停';
+  const rules=[s.filter?['包含'+(s.isFilterRegex?' · 正则':''),s.filter]:null,s.excludeFilter?['排除'+(s.isExcludeFilterRegex?' · 正则':''),s.excludeFilter]:null].filter(Boolean);
+  return '<article class="sub-card"><header class="sub-heading"><span class="sub-source" title="'+esc(s.url)+'">'+esc(source)+'</span><span class="badge '+(s.enabled?'':'paused')+'">'+status+'</span></header>'+
+    '<h3 title="'+esc(s.name)+'">'+esc(s.name)+'</h3><div class="sub-node"><span>下载至</span><strong>'+esc(node)+'</strong></div>'+
+    '<dl class="sub-stats"><div><dt>已提交下载</dt><dd>'+submitted+'<small> 次</small></dd></div><div><dt>最近检查</dt><dd class="sub-checked">'+esc(time(s.lastChecked))+'</dd></div></dl>'+
+    '<div class="sub-rules">'+(rules.length?rules.map(([label,value])=>'<div><span>'+label+'</span><code title="'+esc(value)+'">'+esc(value)+'</code></div>').join(''):'<span class="sub-rule-empty">接收全部内容</span>')+'</div>'+
+    (s.lastError?'<div class="sub-error"><strong>最近检查失败</strong><span>'+esc(s.lastError)+'</span></div>':'')+
+    '<footer class="toolbar sub-actions"><button data-edit="'+id+'">编辑</button><details class="sub-more"><summary aria-label="'+esc(s.name)+'：更多操作">更多</summary><div class="sub-menu"><button data-history="'+id+'">查看历史</button><button data-check="'+id+'">立即检查</button><button data-redownload="'+id+'">重新下载全部</button><button data-toggle="'+id+'">'+(s.enabled?'暂停订阅':'启用订阅')+'</button><button data-delete="'+id+'" class="danger">删除订阅</button></div></details></footer></article>';
+}
+
 export async function subscriptions(){
   removeMenuListeners();
   list=await api('/subscriptions');if(state.page!=='subscriptions')return;
-  $('#content').innerHTML=heading('我的订阅','更新自动发现，喜欢的剧集不再错过。','<button id="check-subs">↻ 立即检查</button><button id="new-sub" class="primary">＋ 添加订阅</button>')+'<div class="callout">每 '+state.config.settings.subscriptionIntervalMinutes+' 分钟自动检查。新订阅默认下载源中已有的匹配资源；重新下载会忽略订阅历史，再次提交源中全部匹配资源。</div><div class="card-grid">'+list.map(s=>'<article class="sub-card"><div class="sub-top"><div class="sub-icon">◉</div><span class="badge '+(s.lastError?'error':s.enabled?'':'paused')+'">'+(s.lastError?'检查失败':s.enabled?'自动追更':'已暂停')+'</span></div><h3>'+esc(s.name)+'</h3><p>'+esc(state.config.nodes.find(n=>n.id===s.nodeId)?.name||s.nodeId)+' · '+s.history.filter(h=>!h.skipped).length+' 次提交<br>最近检查：'+time(s.lastChecked)+'<br>过滤：'+esc(s.filter||'全部内容')+'</p>'+(s.lastError?'<div class="error-text hint">'+esc(s.lastError)+'</div>':'')+'<div class="toolbar sub-actions"><button data-edit="'+esc(s.id)+'">编辑</button><details class="sub-more"><summary>更多</summary><div class="sub-menu"><button data-history="'+esc(s.id)+'">查看历史</button><button data-check="'+esc(s.id)+'">立即检查</button><button data-redownload="'+esc(s.id)+'">重新下载全部</button><button data-toggle="'+esc(s.id)+'">'+(s.enabled?'暂停订阅':'启用订阅')+'</button><button data-delete="'+esc(s.id)+'" class="danger">删除订阅</button></div></details></div></article>').join('')+'</div>'+(!list.length?'<div class="panel">'+empty('开始你的第一份订阅','添加 RSS 地址，或前往「发现番剧」选择喜欢的作品。','◉')+'</div>':'');
+  $('#content').innerHTML=heading('我的订阅','更新自动发现，喜欢的剧集不再错过。','<button id="check-subs">↻ 立即检查</button><button id="new-sub" class="primary">＋ 添加订阅</button>')+'<div class="callout">每 '+state.config.settings.subscriptionIntervalMinutes+' 分钟自动检查。新订阅默认下载源中已有的匹配资源；重新下载会忽略订阅历史，再次提交源中全部匹配资源。</div><div class="card-grid">'+list.map(subscriptionCard).join('')+'</div>'+(!list.length?'<div class="panel">'+empty('开始你的第一份订阅','添加 RSS 地址，或前往「发现番剧」选择喜欢的作品。','◉')+'</div>':'');
   $('#new-sub').onclick=()=>editSubscription();$('#check-subs').onclick=e=>run(async()=>{showCheck(await api('/subscriptions/check','POST',{}));await subscriptions();},e.target);
   $('#content').querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>editSubscription(list.find(x=>x.id===b.dataset.edit)));
   $('#content').querySelectorAll('[data-check]').forEach(b=>b.onclick=()=>run(async()=>{showCheck(await api('/subscriptions/check','POST',{id:b.dataset.check}));await subscriptions();},b));
