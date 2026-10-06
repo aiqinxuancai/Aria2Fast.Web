@@ -45,11 +45,11 @@ public sealed class MikanService(StateStore store, HttpGateway http, IMemoryCach
         return result;
     }
 
-    public async Task<AnimeDetail> Detail(string id, CancellationToken ct)
+    public async Task<AnimeDetail> Detail(string id, CancellationToken ct, bool generateAi = true)
     {
         if (!Regex.IsMatch(id, @"^\d{1,12}$")) throw new ArgumentException("番剧 ID 无效");
         var key = $"detail:{Root}:{id}";
-        if (cache.TryGetValue<AnimeDetail>(key, out var cached)) return await Enrich(cached!, ct);
+        if (cache.TryGetValue<AnimeDetail>(key, out var cached)) return await Enrich(cached!, ct, generateAi);
         var doc = new HtmlDocument();
         doc.LoadHtml(await http.GetTextAsync(Root + "/Home/Bangumi/" + id, ct));
         var name = Text(doc.DocumentNode.SelectSingleNode("//p[contains(@class,'bangumi-title')] | //div[contains(@class,'bangumi-title')] | //h1"));
@@ -67,18 +67,18 @@ public sealed class MikanService(StateStore store, HttpGateway http, IMemoryCach
         if (!string.IsNullOrWhiteSpace(store.Read().Settings.TmdbApiKey)) tmdb = await Tmdb(name, ct);
         var detail = new AnimeDetail(id, name, summary, groups, tmdb, null);
         cache.Set(key, detail, TimeSpan.FromMinutes(30));
-        return await Enrich(detail, ct);
+        return await Enrich(detail, ct, generateAi);
     }
 
-    private async Task<AnimeDetail> Enrich(AnimeDetail detail, CancellationToken ct)
+    private async Task<AnimeDetail> Enrich(AnimeDetail detail, CancellationToken ct, bool generateAi)
     {
         var settings = store.Read().Settings;
         var original = string.IsNullOrWhiteSpace(detail.Summary) ? detail.Tmdb?.Overview ?? "" : detail.Summary;
         var summary = ai.CachedTranslation(original) ?? original;
-        if (settings.TranslateSummary && summary == original && !string.IsNullOrWhiteSpace(original))
+        if (generateAi && settings.TranslateSummary && summary == original && !string.IsNullOrWhiteSpace(original))
             summary = await ai.Translate(original, ct);
         var review = ai.CachedReview(detail.Id);
-        if (settings.AutoReview && review is null) review = await ai.Review(detail.Id, detail.Name, original, ct);
+        if (generateAi && settings.AutoReview && review is null) review = await ai.Review(detail.Id, detail.Name, original, ct);
         return detail with { Summary = summary, Review = review, OriginalSummary = original };
     }
 

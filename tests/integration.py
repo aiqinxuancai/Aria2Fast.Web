@@ -78,14 +78,17 @@ class Fixtures(BaseHTTPRequestHandler):
         if self.path.startswith('/invalid/'):
             self.send_error(401, 'Invalid test credentials')
             return
+        ai_text = '连接成功'
+        if '番剧调查 Agent' in json.dumps(body, ensure_ascii=False):
+            ai_text = json.dumps({'action': 'finish', 'score': None, 'overview': '作品概况', 'originalWork': '原作资料尚未核实', 'adaptation': '改编资料尚未核实', 'review': '测试评析', 'recommendation': '建议参考官方信息', 'caveats': '未联网核实'}, ensure_ascii=False)
         if self.path.endswith('/chat/completions'):
-            return self.reply({'choices': [{'message': {'content': '连接成功'}}]})
+            return self.reply({'choices': [{'message': {'content': ai_text}}]})
         if self.path.endswith('/responses'):
-            return self.reply({'output': [{'type': 'message', 'content': [{'type': 'output_text', 'text': '连接成功'}]}]})
+            return self.reply({'output': [{'type': 'message', 'content': [{'type': 'output_text', 'text': ai_text}]}]})
         if self.path.endswith('/messages'):
-            return self.reply({'content': [{'type': 'text', 'text': '连接成功'}]})
+            return self.reply({'content': [{'type': 'text', 'text': ai_text}]})
         if 'generateContent' in self.path:
-            return self.reply({'candidates': [{'content': {'parts': [{'text': '连接成功'}]}}]})
+            return self.reply({'candidates': [{'content': {'parts': [{'text': ai_text}]}}]})
         method = body.get('method', '').removeprefix('aria2.')
         args = body.get('params', [])
         if args and isinstance(args[0], str) and args[0].startswith('token:'):
@@ -302,6 +305,20 @@ def main():
             config['selectedAiId'] = 'test-ai'
             api('/settings', 'PUT', config)
             assert api('/ai/test', 'POST')['text'] == '连接成功'
+            config['autoReview'] = True
+            api('/settings', 'PUT', config)
+            review = api('/anime/123/review?refresh=true', 'POST')
+            assert review['version'] == 2 and review['originalWork'] == '原作资料尚未核实'
+            assert review['score'] is None and review['warnings']
+            assert api('/anime/123?generateAi=false')['review'] == review
+            assert api('/anime/123/review', 'POST') == review
+        config['aiProfiles'] = []
+        config['selectedAiId'] = 'removed-model'
+        api('/settings', 'PUT', config)
+        assert api('/anime/123/review', 'POST') == review
+        api('/anime/123/review?refresh=true', 'POST', expected=400)
+        assert api('/anime/123')['review'] == review
+
         backup = api('/backup')
         assert api('/backup/import', 'POST', backup)['imported'] == 0
         api('/not-a-route', expected=404)

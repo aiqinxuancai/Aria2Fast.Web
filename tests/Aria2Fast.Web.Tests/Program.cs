@@ -83,7 +83,7 @@ try
             entry.Value = new Aria2Fast.Web.Models.AnimeDetail("123", "Title", original, [], null, null);
         var mikan = new MikanService(restarted, new HttpGateway(restarted), memory, ai);
         var detail = mikan.Detail("123", CancellationToken.None).GetAwaiter().GetResult();
-        Assert(detail.Summary == translated && detail.Review == review);
+        Assert(detail.Summary == translated && System.Text.Json.JsonSerializer.Serialize(detail.Review) == System.Text.Json.JsonSerializer.Serialize(review));
     });
     Test("Atomic persistence and snapshot isolation", () => { store.Update(s => s.Settings.MikanBaseUrl = "https://example.com"); var copy = store.Read(); copy.Settings.MikanBaseUrl = "changed"; Assert(new StateStore(config).Read().Settings.MikanBaseUrl == "https://example.com"); });
     Test("Failed state update does not change persisted data", () => { Throws<InvalidOperationException>(() => store.Update(s => { s.SelectedNodeId = "bad"; throw new InvalidOperationException(); })); Assert(store.Read().SelectedNodeId == "local"); });
@@ -100,4 +100,5 @@ try
     Test("Corrupt state fails rather than resets", () => { File.WriteAllText(Path.Combine(temporary, "state.json"), "invalid-json"); Throws<System.Text.Json.JsonException>(() => new StateStore(config)); });
 }
 finally { Directory.Delete(temporary, true); }
+passed += await AiResearchTests.Run();
 Console.WriteLine($"{passed} tests passed.");

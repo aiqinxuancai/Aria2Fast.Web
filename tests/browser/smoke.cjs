@@ -127,6 +127,7 @@ const root = path.resolve(__dirname, '../..');
     await page.screenshot({path:path.join(root,'artifacts/screenshots/anime-weekday-groups.png'),fullPage:true});
     await page.locator('.anime-card[data-anime="123"]').click();
     await page.locator('[data-sub]').first().waitFor();
+    await require('./anime-review.cjs')(page);
     await page.locator('#modal-close').click();
     await page.locator('nav a[data-page=settings]').click();
     await page.locator('[name=localBtPort]').fill('16888');

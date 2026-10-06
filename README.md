@@ -39,7 +39,7 @@
 - HTTP / FTP / Magnet 批量添加，Torrent / Metalink 上传；进度、速度、暂停/继续、批量移除、队列置顶、限速、Tracker、种子选文件及 Peers。
 - 本地 Aria2 生命周期管理、会话保存、远程节点管理及切换；本地全局参数在重启后恢复。
 - RSS / Atom 自动轮询、关键词 OR / 正则 / 排除过滤、匹配预览；新订阅默认补齐已有资源，可选仅追更；支持重新下载全部匹配资源、下载历史去重、季度目录、AI 按作品分目录。
-- Mikan 季度与星期浏览、搜索、字幕组订阅、单条资源下载；可选 TMDB 评分/投票/热度/简介、AI 翻译与评析、Tavily 参考搜索。
+- Mikan 季度与星期浏览、搜索、字幕组订阅、单条资源下载；可选 TMDB 元数据、持久化 AI 翻译与评析。评析 Agent 支持 Brave、Serper、SerpApi、Tavily 搜索与网页正文抓取，调查原作及改编信息并附来源，详见 [番剧调查与评析](docs/AI-RESEARCH.md)。
 - OpenAI Chat Completions、Responses、Claude Messages、Gemini 四类 AI 协议；多组配置管理。
 - 已完成本地文件浏览器取回、AI 重命名预览与确认；PushDeer 下载完成推送、活动记录。
 - 订阅 JSON 导出/合并导入、桌面端订阅数组兼容、OSS 手动上传、合并与可选定时同步。

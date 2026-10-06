@@ -33,6 +33,9 @@ public sealed class WebSettings
     public string ProxyUrl { get; set; } = "";
     public string TmdbApiKey { get; set; } = "";
     public string TavilyApiKey { get; set; } = "";
+    public string BraveApiKey { get; set; } = "";
+    public string SerperApiKey { get; set; } = "";
+    public string SerpApiKey { get; set; } = "";
     public bool TranslateSummary { get; set; }
     public bool AutoReview { get; set; }
     public List<AiProfile> AiProfiles { get; set; } = [];
@@ -75,7 +78,20 @@ public sealed class AiProfile
 }
 
 public sealed record Notice(DateTimeOffset Time, string Level, string Message);
-public sealed record AiReview(double? Score, string Review, DateTimeOffset CreatedAt, string Sources = "");
+public sealed record AiReview(double? Score, string Review, DateTimeOffset CreatedAt, string Sources = "")
+{
+    public string Overview { get; init; } = "";
+    public string OriginalWork { get; init; } = "";
+    public string Adaptation { get; init; } = "";
+    public string Recommendation { get; init; } = "";
+    public string Caveats { get; init; } = "";
+    public List<AiResearchSource> References { get; init; } = [];
+    public List<string> Queries { get; init; } = [];
+    public List<string> Warnings { get; init; } = [];
+    public string Model { get; init; } = "";
+    public int Version { get; init; }
+}
+public sealed record AiResearchSource(int Id, string Title, string Url, string Content);
 public sealed record DownloadRecord(string NodeId, string Gid, string Name, DateTimeOffset AddedAt)
 {
     public bool Notified { get; set; }
