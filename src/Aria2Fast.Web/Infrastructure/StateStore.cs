@@ -54,9 +54,9 @@ public sealed class StateStore
     }
 
     public void Update(Action<AppState> update) => Update(s => { update(s); return true; });
-    public void Log(string message, string level = "info") => Update(s =>
+    public void Log(string message, string level = "info", string? details = null) => Update(s =>
     {
-        s.Notices.Insert(0, new(DateTimeOffset.UtcNow, level, message));
+        s.Notices.Insert(0, new(DateTimeOffset.UtcNow, level, message, details));
         if (s.Notices.Count > 400) s.Notices.RemoveRange(400, s.Notices.Count - 400);
     });
     private static AppState Clone(AppState value) => JsonSerializer.Deserialize<AppState>(JsonSerializer.Serialize(value, Json), Json)!;

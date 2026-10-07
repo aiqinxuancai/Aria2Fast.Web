@@ -93,12 +93,12 @@ public sealed class AiService(StateStore store, HttpGateway http)
         var gate = reviewGates[(int)((uint)StringComparer.Ordinal.GetHashCode(id) % (uint)reviewGates.Length)];
         await gate.WaitAsync(ct);
         ReviewTask? task = null;
-        void Progress(string message, string status = "running")
+        void Progress(string message, string status = "running", string? details = null)
         {
             if (task is null) return;
             task = task with { Progress = message, Status = status, UpdatedAt = DateTimeOffset.UtcNow };
             tasks[id] = task;
-            store.Log($"【{name}】{message}", status == "completed" ? "success" : status == "failed" ? "error" : "info");
+            store.Log($"【{name}】{message}", status == "completed" ? "success" : status == "failed" ? "error" : "info", details);
         }
         try
         {
@@ -131,7 +131,7 @@ public sealed class AiService(StateStore store, HttpGateway http)
         }
         catch (Exception ex)
         {
-            Progress(ex is OperationCanceledException ? "调查已取消，已有评析仍保留" : "调查失败，已有评析仍保留", "failed");
+            Progress(ex is OperationCanceledException ? "调查已取消，已有评析仍保留" : "调查失败，已有评析仍保留", "failed", $"{ex.GetType().Name}: {ex.Message}");
             throw;
         }
         finally { gate.Release(); }

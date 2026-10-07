@@ -58,7 +58,7 @@ public sealed class AnimeReviewAgent(
             try
             {
                 var answer = await complete(prompt, Instruction, ct);
-                action = JsonNode.Parse(AiService.CleanJson(answer)) as JsonObject ?? throw new JsonException();
+                action = ParseAction(AiService.CleanJson(answer)) ?? throw new JsonException();
             }
             catch (JsonException)
             {
@@ -179,4 +179,29 @@ public sealed class AnimeReviewAgent(
 
     private static string String(JsonObject action, string key) => action[key] is JsonValue value && value.TryGetValue<string>(out var text) ? Limit(text, 12000) : "";
     private static string Limit(string value, int max) => value.Length > max ? value[..max] : value;
+
+    // AI responses can repeat a property; JsonNode.Parse rejects that input.
+    private static JsonObject? ParseAction(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return Convert(document.RootElement) as JsonObject;
+    }
+
+    private static JsonNode? Convert(JsonElement element) => element.ValueKind switch
+    {
+        JsonValueKind.Object => ConvertObject(element),
+        JsonValueKind.Array => new JsonArray(element.EnumerateArray().Select(Convert).ToArray()),
+        JsonValueKind.String => JsonValue.Create(element.GetString()),
+        JsonValueKind.Number => element.TryGetInt64(out var integer) ? JsonValue.Create(integer) : JsonValue.Create(element.GetDouble()),
+        JsonValueKind.True => JsonValue.Create(true),
+        JsonValueKind.False => JsonValue.Create(false),
+        _ => null
+    };
+
+    private static JsonObject ConvertObject(JsonElement element)
+    {
+        var result = new JsonObject();
+        foreach (var property in element.EnumerateObject()) result[property.Name] = Convert(property.Value);
+        return result;
+    }
 }

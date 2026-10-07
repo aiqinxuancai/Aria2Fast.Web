@@ -77,7 +77,7 @@ public sealed class AiProfile
     public string ApiKey { get; set; } = "";
 }
 
-public sealed record Notice(DateTimeOffset Time, string Level, string Message);
+public sealed record Notice(DateTimeOffset Time, string Level, string Message, string? Details = null);
 public sealed record AiReview(double? Score, string Review, DateTimeOffset CreatedAt, string Sources = "")
 {
     public string Overview { get; init; } = "";
