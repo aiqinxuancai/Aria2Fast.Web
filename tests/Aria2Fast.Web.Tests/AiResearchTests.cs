@@ -43,6 +43,26 @@ static class AiResearchTests
             Check(turn == 4 && searches.Count == 2 && searches[1].Contains("AuthorName"));
             Check(review.References.Count == 1 && review.References[0].Content == "AuthorName" && review.Score == 8 && review.Version == 2);
         });
+        await Test("Agent preserves JSON numeric scores and uses the last duplicate field", async () =>
+        {
+            foreach (var (json, expected) in new (string, double?)[]
+            {
+                ("8", 8), ("8.5", 8.5), ("8e0", 8), ("null", null),
+                ("\"8\"", null), ("0", null), ("11", null), ("1e400", null),
+                ("2,\"score\":8", 8)
+            })
+            {
+                var turn = 0;
+                var agent = new AnimeReviewAgent((p, i, c) => Answer(++turn == 1
+                    ? "{\"action\":\"search\",\"query\":\"作品 官方\"}"
+                    : Finish("[1]").Replace("\"score\":8", "\"score\":" + json)),
+                    (q, p, c) => Task.FromResult<IReadOnlyList<AiResearchSource>>(
+                        [new(0, "Official", "https://example.com/anime", "Evidence")]), ["brave"]);
+                var review = await agent.Run("作品", "简介", default);
+                if (review.Score != expected)
+                    throw new Exception($"Score {json}: expected {expected}, got {review.Score}");
+            }
+        });
         await Test("Agent repairs invalid JSON and fabricated source identifiers", async () =>
         {
             var turn = 0;

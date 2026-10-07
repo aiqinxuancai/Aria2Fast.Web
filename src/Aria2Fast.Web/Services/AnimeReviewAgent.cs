@@ -192,7 +192,7 @@ public sealed class AnimeReviewAgent(
         JsonValueKind.Object => ConvertObject(element),
         JsonValueKind.Array => new JsonArray(element.EnumerateArray().Select(Convert).ToArray()),
         JsonValueKind.String => JsonValue.Create(element.GetString()),
-        JsonValueKind.Number => element.TryGetInt64(out var integer) ? JsonValue.Create(integer) : JsonValue.Create(element.GetDouble()),
+        JsonValueKind.Number => JsonValue.Create(element.Clone()),
         JsonValueKind.True => JsonValue.Create(true),
         JsonValueKind.False => JsonValue.Create(false),
         _ => null

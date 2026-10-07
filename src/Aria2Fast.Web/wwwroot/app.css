@@ -10,6 +10,12 @@
 .anime-day{margin-bottom:36px}.anime-day-heading{display:flex;align-items:center;gap:14px;border-bottom:1px solid var(--line);padding-bottom:14px;margin-bottom:20px}.anime-day-heading h2{margin:0;font-size:20px}.anime-day-heading span{font-size:12px;color:var(--muted)}.anime-card.unpublished{color:var(--muted)}.anime-card.unpublished .poster{filter:grayscale(1);opacity:.55}.anime-card.unpublished:hover img{transform:none}.anime-card h3{height:3.4em;margin:12px 0 0;line-height:1.7;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;word-break:break-word}
 .top-actions .node-picker{height:40px;width:190px;padding:8px 35px 8px 14px;border-radius:11px;background:var(--surface2);border-color:var(--line);color:var(--text);font-size:12px;font-weight:600;box-shadow:inset 0 1px 0 #ffffff10;cursor:pointer}
 .top-actions .node-picker:hover{background:var(--surface2);border-color:var(--accent);transform:none}
+
+.anime-hero{padding:22px 28px;margin-bottom:20px}
+.anime-hero .eyebrow{margin-bottom:6px}
+.anime-hero h1{margin-bottom:5px}
+.anime-hero p{line-height:1.5}
+@media(max-width:760px){.anime-hero{padding:18px 20px;margin-bottom:18px}}
 .top-actions .node-picker:focus-visible{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent)}
 
 .anime-card{display:flex;flex-direction:column;align-self:start;width:100%}.anime-card .poster{width:100%;flex:none}.anime-card h3{width:100%;flex:none;text-align:left}
