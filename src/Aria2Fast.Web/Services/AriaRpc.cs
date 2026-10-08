@@ -26,7 +26,7 @@ public sealed class AriaRpc(StateStore store, HttpGateway http)
                         if (saved[option] is { } value) options[option] = value.ToString();
             }
             catch (InvalidOperationException) { } // aria2 may discard options for stopped tasks.
-            var newGid = (await Call("addUri", [urls, options], node.Id, ct)).ToString();
+            var newGid = await Submit(urls, options, node.Id, ct);
             retried[key] = newGid;
             if (retried.Count > 2000) retried.Remove(retried.Keys.First());
             Track(node.Id, newGid, urls[0]);
@@ -77,9 +77,23 @@ public sealed class AriaRpc(StateStore store, HttpGateway http)
         options ??= [];
         var dir = string.IsNullOrWhiteSpace(directory) ? (node.Id == "local" ? store.Read().Settings.DownloadDirectory : node.DownloadDirectory) : directory;
         if (!string.IsNullOrWhiteSpace(dir)) options["dir"] = dir;
-        var gid = (await Call("addUri", [new[] { uri }, options], node.Id, ct)).ToString();
+        var gid = await Submit([uri], options, node.Id, ct);
         Track(node.Id, gid, uri);
         return gid;
+    }
+
+    private async Task<string> Submit(string[] urls, Dictionary<string, string> options, string nodeId, CancellationToken ct)
+    {
+        var settings = store.Read().Settings;
+        if (Uri.TryCreate(urls[0], UriKind.Absolute, out var source) && MikanTorrentDownload.Matches(source, settings))
+        {
+            var data = await MikanTorrentDownload.Fetch(source, settings, http, ct);
+            var torrentOptions = new Dictionary<string, string>(options);
+            // An old failed HTTP task's output name belongs to the torrent, not its payload.
+            torrentOptions.Remove("out");
+            return (await Call("addTorrent", [Convert.ToBase64String(data), Array.Empty<string>(), torrentOptions], nodeId, ct)).ToString();
+        }
+        return (await Call("addUri", [urls, options], nodeId, ct)).ToString();
     }
 
     public void Track(string nodeId, string gid, string name) => store.Update(s =>

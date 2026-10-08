@@ -19,6 +19,8 @@ public static class ConfigurationEndpoints
         api.MapPut("/settings", async (WebSettings input, StateStore store, LocalAriaService local, AriaRpc rpc, CancellationToken ct) =>
         {
             if (input.SubscriptionIntervalMinutes is < 1 or > 1440 || input.LocalRpcPort is < 1024 or > 65535) throw new ArgumentException("轮询间隔或 RPC 端口无效");
+            input.MikanFallbackUrl = input.MikanFallbackUrl?.Trim() ?? "";
+            if (input.MikanFallbackUrl.Length > 0) Validation.HttpUrl(input.MikanFallbackUrl);
             Validation.HttpUrl(input.MikanBaseUrl); Validation.HttpUrl(input.PushEndpoint);
             if (input.Oss.IntervalMinutes is < 1 or > 1440) throw new ArgumentException("OSS 同步间隔应在 1 至 1440 分钟之间");
             if (input.Oss.AutoSync)

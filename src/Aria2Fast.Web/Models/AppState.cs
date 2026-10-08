@@ -30,6 +30,7 @@ public sealed class WebSettings
     public string DownloadDirectory { get; set; } = "";
     public int SubscriptionIntervalMinutes { get; set; } = 15;
     public string MikanBaseUrl { get; set; } = "https://mikanime.tv";
+    public string MikanFallbackUrl { get; set; } = "https://mikanani.me";
     public string ProxyUrl { get; set; } = "";
     public string TmdbApiKey { get; set; } = "";
     public string TavilyApiKey { get; set; } = "";
