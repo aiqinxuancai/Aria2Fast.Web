@@ -1,14 +1,23 @@
 import {esc,api,run,toast} from './core.js';
 
+function reviewSummary(review){
+  const text=[review.recommendation,review.review||review.overview].filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
+  const chars=Array.from(text||'暂无简要结论，请展开查看调查信息。');
+  if(chars.length<=180)return chars.join('');
+  const excerpt=chars.slice(0,179).join('');
+  const sentence=Math.max(excerpt.lastIndexOf('。'),excerpt.lastIndexOf('！'),excerpt.lastIndexOf('？'));
+  return sentence>=80?excerpt.slice(0,sentence+1):excerpt+'…';
+}
+
 function reviewMarkup(review){
   if(!review)return '<p class="hint">调查番剧背景、原作与动画改编信息，结合来源生成评析。完成后自动保存，可随时重新调查。</p>';
   const sections=[['作品概况',review.overview],['原作信息',review.originalWork],['动画与改编',review.adaptation],['综合评析',review.review],['观看建议',review.recommendation],['待核实与局限',review.caveats]];
   const references=(review.references||[]).filter(source=>{try{const url=new URL(source.url);return ['http:','https:'].includes(url.protocol)&&!url.username&&!url.password;}catch{return false;}});
-  return '<div class="hint">已保存 · '+esc(new Date(review.createdAt).toLocaleString('zh-CN'))+(review.model?' · '+esc(review.model):'')+'</div><p class="review-score">'+(review.score==null?'资料不足，暂不评分':'AI 推荐分 '+esc(review.score)+' / 10')+'</p>'+
+  return '<p class="review-summary">'+esc(reviewSummary(review))+'</p><details class="review-full"><summary><span class="review-expand">展开完整评析</span><span class="review-collapse">收起完整评析</span></summary><div class="review-body"><div class="hint">已保存 · '+esc(new Date(review.createdAt).toLocaleString('zh-CN'))+(review.model?' · '+esc(review.model):'')+'</div><p class="review-score">'+(review.score==null?'资料不足，暂不评分':'AI 推荐分 '+esc(review.score)+' / 10')+'</p>'+
     (review.warnings||[]).map(w=>'<p class="callout">'+esc(w)+'</p>').join('')+
     sections.filter(([,text])=>text).map(([title,text])=>'<section><h4>'+title+'</h4><p class="pre">'+esc(text)+'</p></section>').join('')+
     (references.length?'<details class="review-sources" open><summary>参考来源（'+references.length+'）</summary><ul>'+references.map(s=>'<li><a href="'+esc(s.url)+'" target="_blank" rel="noopener noreferrer">['+esc(s.id)+'] '+esc(s.title||s.url)+'</a></li>').join('')+'</ul></details>':review.sources?'<details><summary>参考来源</summary><p class="pre">'+esc(review.sources)+'</p></details>':'')+
-    (review.queries?.length?'<details><summary>调查记录（'+review.queries.length+' 次搜索）</summary><ul>'+review.queries.map(q=>'<li>'+esc(q)+'</li>').join('')+'</ul></details>':'');
+    (review.queries?.length?'<details><summary>调查记录（'+review.queries.length+' 次搜索）</summary><ul>'+review.queries.map(q=>'<li>'+esc(q)+'</li>').join('')+'</ul></details>':'')+'</div></details>';
 }
 
 const localTasks=new Map();
@@ -53,7 +62,14 @@ export function bindAnimeReview(id,review,button,container,autoReview){
     button.textContent=busy?(checking?'检查调查状态…':'正在调查…'):current?'↻ 重新调查':'✧ 调查并评析';
     container.toggleAttribute('aria-busy',!!busy);
     if(busy)container.setAttribute('aria-busy','true');
-    container.innerHTML=reviewMarkup(current);
+    const expanded=[...container.querySelectorAll('details')].map(element=>element.open);
+    const markup=reviewMarkup(current);
+    if(container.dataset.markup!==markup){
+      container.innerHTML=markup;
+      container.dataset.markup=markup;
+      container.querySelectorAll('details').forEach((element,index)=>{if(index<expanded.length)element.open=expanded[index];});
+    }
+    container.querySelector(':scope > [role="status"]')?.remove();
     const message=busy?(remote?.status==='running'?remote.progress:'正在调查番剧与原作资料…'):local?.error;
     if(message){const status=document.createElement('p');status.className='callout'+(!busy?' error':'');status.setAttribute('role','status');status.textContent=message+(!busy&&current?' 已保留上次保存的评析。':'');container.prepend(status);}
     if(!busy&&remote?.status==='completed'&&!local?.result&&remote.id!==container.dataset.loadedReview){

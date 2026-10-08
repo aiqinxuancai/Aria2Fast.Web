@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict');
 
 module.exports=async function verifyAnimeReview(page){
-  const review={score:8,review:'综合评析 [1]',createdAt:'2026-10-06T08:00:00Z',overview:'作品概况 [1]',originalWork:'原作作者与出版社 [1]',adaptation:'动画改编 [1]',recommendation:'适合喜欢冒险的观众',caveats:'最新连载状态待核实',model:'fixture',version:2,queries:['作品 原作 作者'],warnings:[],references:[{id:1,title:'官方资料',url:'https://example.com/anime'},{id:2,title:'非法链接',url:'javascript:alert(1)'}]};
+  const review={score:8,review:'综合评析 [1]。'.repeat(60),createdAt:'2026-10-06T08:00:00Z',overview:'作品概况 [1]',originalWork:'原作作者与出版社 [1]',adaptation:'动画改编 [1]',recommendation:'适合喜欢冒险的观众',caveats:'最新连载状态待核实',model:'fixture',version:2,queries:['作品 原作 作者'],warnings:[],references:[{id:1,title:'官方资料',url:'https://example.com/anime'},{id:2,title:'非法链接',url:'javascript:alert(1)'}]};
   let calls=0,release;
   const pending=new Promise(resolve=>release=resolve);
   await page.route('**/api/anime/123/review*',async route=>{
@@ -25,6 +25,18 @@ module.exports=async function verifyAnimeReview(page){
     await page.locator('.anime-card[data-anime="123"]').click();
     await page.locator('#ai-review').filter({hasText:'重新调查'}).waitFor();
     await page.locator('.toast').filter({hasText:'【Fixture Anime】调查与评析已完成并保存'}).waitFor();
+    assert(await page.locator('.review-summary').isVisible());
+    assert((await page.locator('.review-summary').textContent()).length<=180);
+    assert(await page.locator('.review-body').isHidden());
+    await page.screenshot({path:require('node:path').resolve(__dirname,'../../artifacts/screenshots/anime-review-summary.png')});
+    await page.locator('.review-full > summary').click();
+    assert(await page.locator('.review-body').isVisible());
+    await page.evaluate(()=>window.dispatchEvent(new Event('review-progress')));
+    assert(await page.locator('.review-body').isVisible(),'Polling must preserve the expanded review');
+    await page.locator('.review-full > summary').focus();
+    await page.keyboard.press('Enter');
+    assert(await page.locator('.review-body').isHidden());
+    await page.locator('.review-full > summary').click();
     assert((await page.locator('#ai-review-content').textContent()).includes('原作作者与出版社'));
     assert.equal(await page.locator('#ai-review-content a').count(),1);
     assert.equal(await page.locator('#ai-review-content a').getAttribute('rel'),'noopener noreferrer');
