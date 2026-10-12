@@ -52,6 +52,7 @@ const root = path.resolve(__dirname, '../..');
     await page.locator('#add-form textarea').fill(info.fixture + '/file-ui.bin');
     await page.locator('#add-form button[type=submit]').click();
     await page.locator('.task-name').filter({hasText:'file-ui.bin'}).waitFor();
+    await require('./task-upload.cjs')(page);
     fs.mkdirSync(path.join(root, 'artifacts/screenshots'), { recursive: true });
     await page.screenshot({ path: path.join(root, 'artifacts/screenshots/desktop-light.png'), fullPage: true });
     await page.locator('[data-action=pause]').first().click();
