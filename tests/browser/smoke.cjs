@@ -153,6 +153,7 @@ const root = path.resolve(__dirname, '../..');
     await page.locator('nav a[data-page=anime]').click();
     await page.locator('.anime-card').first().waitFor();
     await page.locator('.hot.purple').waitFor();
+    await require('./anime-subscriptions.cjs')(page);
     assert.equal(await page.locator('.anime-episode').first().textContent(),'第 7 集');
     assert.equal(await page.locator('.anime-card small').count(),0);
     await require('./modal-scroll.cjs')(page);

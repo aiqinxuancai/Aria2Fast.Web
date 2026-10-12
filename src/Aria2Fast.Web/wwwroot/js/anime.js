@@ -54,11 +54,24 @@ function render(){
   $('#anime-results').querySelectorAll('[data-anime]').forEach(b=>b.onclick=()=>run(()=>detail(b.dataset.anime),b));
   observeBadges();
 }
+function feedKey(value){
+  try{const url=new URL(value);url.hash='';url.searchParams.sort();return url.href;}catch{return value;}
+}
+function subscriptionBadge(group,subscriptions){
+  const matches=subscriptions.filter(s=>feedKey(s.url)===feedKey(group.url));
+  if(!matches.length)return '';
+  const nodes=matches.map(s=>(state.config.nodes.find(n=>n.id===s.nodeId)?.name||s.nodeId)+(s.enabled?'':'（已暂停）')).join('、');
+  return '<span class="badge anime-subscribed" title="'+esc('已添加至：'+nodes)+'">✓ 已订阅'+(matches.every(s=>!s.enabled)?' · 已暂停':'')+'</span>';
+}
 async function detail(id){
   modal(cards.find(c=>c.id===id)?.name||'番剧详情','<div class="loading">获取作品与字幕组…</div>');
-  let d;try{d=await api('/anime/'+id+'?generateAi=false');}catch(e){$('#modal-body').innerHTML='<div class="callout error">'+esc(e.message)+'</div>';return;}
+  const loading=$('#modal-body .loading');
+  let d,subscriptions;
+  try{[d,subscriptions]=await Promise.all([api('/anime/'+id+'?generateAi=false'),api('/subscriptions')]);}
+  catch(e){if(loading.isConnected)$('#modal-body').innerHTML='<div class="callout error">'+esc(e.message)+'</div>';return;}
+  if(!loading.isConnected||!$('#modal').open)return;
   $('#modal-title').textContent=d.name;
-  $('#modal-body').innerHTML='<p class="pre" id="anime-summary">'+esc(d.summary||d.tmdb?.overview||'源站暂未提供该番剧的简介。')+'</p>'+(d.tmdb?'<div class="detail-metrics"><div>'+d.tmdb.score.toFixed(1)+'<small>TMDB 评分 · '+d.tmdb.voteCount+' 人</small></div><div>'+d.tmdb.popularity.toFixed(0)+'<small>TMDB 热度</small></div><div>'+esc(d.tmdb.firstAirDate||'—')+'<small>首播日期</small></div></div><p class="hint">TMDB 匹配作品：'+esc(d.tmdb.name)+'。搜索匹配可能存在同名差异。</p>':'<p class="hint">配置 TMDB API Key 后可显示真实评分、投票数与热度。</p>')+'<div class="toolbar"><button id="ai-review">✧ AI 评析</button><button id="translate-summary">翻译简介</button><a href="'+esc(cards.find(c=>c.id===id)?.url||'#')+'" target="_blank" rel="noopener noreferrer">前往 Mikan ↗</a></div><div id="ai-review-content" style="margin-top:20px">'+(d.review?esc((d.review.score??'信息不足')+' · '+d.review.review):'')+'</div><h3 style="margin-top:25px">选择字幕组</h3>'+d.groups.map((g,i)=>'<div class="file-row"><span>'+esc(g.name)+'</span><button data-feed="'+i+'">查看更新</button><button class="primary" data-sub="'+i+'">订阅</button></div>').join('')+(d.groups.length?'':'<p class="hint" id="anime-groups-empty">暂无字幕组发布，发布后可查看更新和订阅。</p>')+'<div id="anime-feed"></div>';
+  $('#modal-body').innerHTML='<p class="pre" id="anime-summary">'+esc(d.summary||d.tmdb?.overview||'源站暂未提供该番剧的简介。')+'</p>'+(d.tmdb?'<div class="detail-metrics"><div>'+d.tmdb.score.toFixed(1)+'<small>TMDB 评分 · '+d.tmdb.voteCount+' 人</small></div><div>'+d.tmdb.popularity.toFixed(0)+'<small>TMDB 热度</small></div><div>'+esc(d.tmdb.firstAirDate||'—')+'<small>首播日期</small></div></div><p class="hint">TMDB 匹配作品：'+esc(d.tmdb.name)+'。搜索匹配可能存在同名差异。</p>':'<p class="hint">配置 TMDB API Key 后可显示真实评分、投票数与热度。</p>')+'<div class="toolbar"><button id="ai-review">✧ AI 评析</button><button id="translate-summary">翻译简介</button><a href="'+esc(cards.find(c=>c.id===id)?.url||'#')+'" target="_blank" rel="noopener noreferrer">前往 Mikan ↗</a></div><div id="ai-review-content" style="margin-top:20px">'+(d.review?esc((d.review.score??'信息不足')+' · '+d.review.review):'')+'</div><h3 style="margin-top:25px">选择字幕组</h3>'+d.groups.map((g,i)=>'<div class="file-row anime-group-row"><span class="anime-group-name">'+esc(g.name)+subscriptionBadge(g,subscriptions)+'</span><button data-feed="'+i+'">查看更新</button><button class="primary" data-sub="'+i+'">订阅</button></div>').join('')+(d.groups.length?'':'<p class="hint" id="anime-groups-empty">暂无字幕组发布，发布后可查看更新和订阅。</p>')+'<div id="anime-feed"></div>';
   bindAnimeReview(id,d.review,$('#ai-review'),$('#ai-review-content'),state.config.settings.autoReview);
   const summaryElement=$('#anime-summary');
   const translateButton=$('#translate-summary');
