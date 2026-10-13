@@ -11,4 +11,4 @@
 - Aliyun OSS .NET SDK：Apache-2.0，https://github.com/aliyun/aliyun-oss-csharp-sdk。
 - ASP.NET Core / .NET：MIT，https://github.com/dotnet/aspnetcore。
 
-Mikan、TMDB、Tavily、PushDeer、AI 服务均为可选外部服务，内容与商标归各自权利人。TMDB 集成使用 TMDB API，本应用未获 TMDB 认可或认证。
+Mikan、TMDB、Tavily、PushDeer、Bark、AI 服务均为可选外部服务，内容与商标归各自权利人。TMDB 集成使用 TMDB API，本应用未获 TMDB 认可或认证。

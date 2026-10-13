@@ -48,7 +48,12 @@ public sealed class BackgroundWorker(StateStore store, SubscriptionService subsc
                         continue;
                     }
                     var name = task["bittorrent"]?["info"]?["name"]?.ToString() ?? task["files"]?[0]?["path"]?.ToString() ?? download.Name;
-                    if (snapshot.Settings.PushEnabled) await Push("下载完成", name, ct);
+                    var sent = true;
+                    if (snapshot.Settings.PushEnabled && !download.PushDeerNotified)
+                        sent &= await NotifyCompletion(download, name, bark: false, ct);
+                    if (snapshot.Settings.BarkEnabled && !download.BarkNotified)
+                        sent &= await NotifyCompletion(download, name, bark: true, ct);
+                    if (!sent) continue;
                     store.Update(s => s.Downloads.First(x => x.NodeId == download.NodeId && x.Gid == download.Gid).Notified = true);
                     store.Log("下载完成：" + name, "success");
                 }
@@ -66,5 +71,45 @@ public sealed class BackgroundWorker(StateStore store, SubscriptionService subsc
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadFromJsonAsync<System.Text.Json.Nodes.JsonNode>(ct);
         if (body?["code"]?.ToString() is { } code && code != "0") throw new InvalidOperationException("PushDeer 推送失败");
+    }
+
+    private async Task<bool> NotifyCompletion(Models.DownloadRecord download, string name, bool bark, CancellationToken ct)
+    {
+        try
+        {
+            if (bark) await PushBark("下载完成", name, ct);
+            else await Push("下载完成", name, ct);
+            store.Update(s =>
+            {
+                var record = s.Downloads.First(x => x.NodeId == download.NodeId && x.Gid == download.Gid);
+                if (bark) record.BarkNotified = true;
+                else record.PushDeerNotified = true;
+            });
+            return true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "{Provider} 下载完成推送失败，将重试", bark ? "Bark" : "PushDeer");
+            return false;
+        }
+    }
+
+    public async Task PushBark(string title, string description, CancellationToken ct)
+    {
+        var settings = store.Read().Settings;
+        if (string.IsNullOrWhiteSpace(settings.BarkKey)) throw new ArgumentException("请设置 Bark 设备 Key");
+        var endpoint = new UriBuilder(Validation.HttpUrl(settings.BarkEndpoint.Trim()));
+        endpoint.Path = endpoint.Path.TrimEnd('/');
+        if (!endpoint.Path.EndsWith("/push", StringComparison.OrdinalIgnoreCase)) endpoint.Path += "/push";
+        using var client = http.Create();
+        using var response = await client.PostAsJsonAsync(endpoint.Uri, new
+        {
+            device_key = settings.BarkKey.Trim(),
+            title,
+            body = description
+        }, ct);
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<System.Text.Json.Nodes.JsonNode>(ct);
+        if (body?["code"]?.ToString() != "200") throw new InvalidOperationException("Bark 推送失败，请检查设备 Key 和接口地址");
     }
 }

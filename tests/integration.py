@@ -22,6 +22,8 @@ PAYLOAD = 'Aria2Fast 下载验证\n'.encode() * 4096
 TASKS = {}
 COUNTER = 0
 FEED_VERSION = 1
+NOTIFICATIONS = []
+PUSH_CODES = {'pushdeer': 0, 'bark': 200}
 
 
 class Fixtures(BaseHTTPRequestHandler):
@@ -81,7 +83,13 @@ class Fixtures(BaseHTTPRequestHandler):
             raw = b''.join(chunks)
         else:
             raw = self.rfile.read(int(self.headers.get('Content-Length', 0)))
+        if self.path == '/pushdeer':
+            NOTIFICATIONS.append(('pushdeer', parse.parse_qs(raw.decode())))
+            return self.reply({'code': PUSH_CODES['pushdeer']})
         body = json.loads(raw or b'{}')
+        if self.path == '/bark/push':
+            NOTIFICATIONS.append(('bark', body))
+            return self.reply({'code': PUSH_CODES['bark']})
         if self.path.startswith('/invalid/'):
             self.send_error(401, 'Invalid test credentials')
             return

@@ -22,6 +22,7 @@ public static class ConfigurationEndpoints
             input.MikanFallbackUrl = input.MikanFallbackUrl?.Trim() ?? "";
             if (input.MikanFallbackUrl.Length > 0) Validation.HttpUrl(input.MikanFallbackUrl);
             Validation.HttpUrl(input.MikanBaseUrl); Validation.HttpUrl(input.PushEndpoint);
+            Validation.HttpUrl(input.BarkEndpoint);
             if (input.Oss.IntervalMinutes is < 1 or > 1440) throw new ArgumentException("OSS 同步间隔应在 1 至 1440 分钟之间");
             if (input.Oss.AutoSync)
             {
@@ -79,6 +80,7 @@ public static class ConfigurationEndpoints
         api.MapPost("/nodes/{id}/test", (string id, AriaRpc rpc, CancellationToken ct) => rpc.Call("getVersion", nodeId: id, ct: ct));
         api.MapGet("/nodes/{id}/directory", async (string id, DownloadPaths paths, CancellationToken ct) => new { directory = await paths.Default(id, ct) });
         api.MapPost("/push/test", async (BackgroundWorker worker, CancellationToken ct) => { await worker.Push("Aria2Fast Web", "测试通知发送成功", ct); return Results.Ok(); });
+        api.MapPost("/bark/test", async (BackgroundWorker worker, CancellationToken ct) => { await worker.PushBark("Aria2Fast Web", "测试通知发送成功", ct); return Results.Ok(); });
         api.MapPost("/ai/test", async (AiService ai, CancellationToken ct) => new { text = await ai.Send("请回复：连接成功", "你是接口测试助手。", ct) });
         api.MapPost("/ai/test-profile", async (AiProfile profile, AiService ai, CancellationToken ct) =>
         {

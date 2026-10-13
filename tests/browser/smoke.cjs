@@ -200,6 +200,7 @@ const root = path.resolve(__dirname, '../..');
     await page.locator('nav a[data-page=settings]').click();
     await page.locator('[name=localBtPort]').fill('17888');
     await require('./desktop-settings.cjs')(page);
+    await require('./notifications.cjs')(page,info.fixture);
     await page.locator('[name=tuning-max-concurrent-downloads]').fill('2');
     await page.locator('[name=trackerAutoUpdate]').check();
     await page.locator('[name=trackerSources]').fill(info.fixture+'/trackers');

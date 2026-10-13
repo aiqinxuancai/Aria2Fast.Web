@@ -44,6 +44,9 @@ public sealed class WebSettings
     public bool PushEnabled { get; set; }
     public string PushEndpoint { get; set; } = "https://api2.pushdeer.com/message/push";
     public string PushKey { get; set; } = "";
+    public bool BarkEnabled { get; set; }
+    public string BarkEndpoint { get; set; } = "https://api.day.app/";
+    public string BarkKey { get; set; } = "";
     public OssSettings Oss { get; set; } = new();
     public Dictionary<string, string> LocalOptions { get; set; } = [];
 }
@@ -96,6 +99,8 @@ public sealed record AiResearchSource(int Id, string Title, string Url, string C
 public sealed record DownloadRecord(string NodeId, string Gid, string Name, DateTimeOffset AddedAt)
 {
     public bool Notified { get; set; }
+    public bool PushDeerNotified { get; set; }
+    public bool BarkNotified { get; set; }
 }
 
 public sealed class TrackerCache
