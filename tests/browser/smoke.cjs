@@ -197,6 +197,7 @@ const root = path.resolve(__dirname, '../..');
     await page.locator('[data-sub]').first().waitFor();
     await require('./anime-review.cjs')(page);
     await page.locator('#modal-close').click();
+    await require('./anime-search.cjs')(page,info.fixture);
     await page.locator('nav a[data-page=settings]').click();
     await page.locator('[name=localBtPort]').fill('17888');
     await require('./desktop-settings.cjs')(page);

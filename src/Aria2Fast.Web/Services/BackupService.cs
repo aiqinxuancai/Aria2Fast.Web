@@ -9,7 +9,9 @@ namespace Aria2Fast.Web.Services;
 
 public sealed class BackupService(StateStore store)
 {
-    public byte[] Export() => JsonSerializer.SerializeToUtf8Bytes(store.Read().Subscriptions, StateStore.Json);
+    // Torznab download links carry the indexer API key; history still deduplicates by Key after import.
+    public byte[] Export() => JsonSerializer.SerializeToUtf8Bytes(store.Read().Subscriptions
+        .Select(s => { s.History = s.History.Select(h => h with { Url = Sources.TorznabUrls.Mask(h.Url) }).ToList(); return s; }), StateStore.Json);
     public int Import(string json)
     {
         var array = JsonNode.Parse(json)?.AsArray() ?? throw new ArgumentException("请导入订阅 JSON 数组");

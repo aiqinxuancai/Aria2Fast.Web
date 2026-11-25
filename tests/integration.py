@@ -24,6 +24,39 @@ COUNTER = 0
 FEED_VERSION = 1
 NOTIFICATIONS = []
 PUSH_CODES = {'pushdeer': 0, 'bark': 200}
+SOURCE_REQUESTS = []
+TORZNAB_KEY = 'fixture-key'
+INFO_HASH = '0123456789abcdef0123456789abcdef01234567'
+
+
+def bencode(value):
+    if isinstance(value, int):
+        return b'i%de' % value
+    if isinstance(value, bytes):
+        return b'%d:%s' % (len(value), value)
+    if isinstance(value, dict):
+        return b'd' + b''.join(bencode(k) + bencode(v) for k, v in sorted(value.items())) + b'e'
+    return b'l' + b''.join(bencode(v) for v in value) + b'e'
+
+
+TORRENT = bencode({b'info': {b'name': b'source-fixture.bin', b'length': 4, b'piece length': 16384, b'pieces': hashlib.sha1(b'test').digest()}})
+
+
+def source_feed(base, path):
+    """RSS in the formats of ACG.RIP, Nyaa, DMHY and Torznab; ACGNX simulates a challenge page."""
+    url = parse.urlsplit(path)
+    query = parse.parse_qs(url.query)
+    if url.path.startswith('/acgrip/'):
+        return ''.join(f'<item><title>[ACG] 测试作品 - {i:02d}</title><link>{base}/acgrip/t/{i}</link><guid>{base}/acgrip/t/{i}</guid><enclosure url="/torrents/acg-{i}.torrent" length="734003200" type="application/x-bittorrent"/></item>' for i in (1, 2))
+    if url.path.startswith('/nyaa/'):
+        return f'<item><title>[Nyaa] Test - 01</title><link>{base}/nyaa/download/1.torrent</link><guid isPermaLink="true">{base}/nyaa/view/1</guid><nyaa:seeders>120</nyaa:seeders><nyaa:leechers>8</nyaa:leechers><nyaa:infoHash>{INFO_HASH}</nyaa:infoHash><nyaa:size>1.4 GiB</nyaa:size></item>'
+    if url.path.startswith('/dmhy/'):
+        return f'<item><title>[DMHY] 测试作品 01</title><link>{base}/dmhy/topics/view/1.html</link><enclosure url="magnet:?xt=urn:btih:{INFO_HASH}" length="1" type="application/x-bittorrent"/></item>'
+    if url.path == '/torznab/api':
+        if query.get('apikey') != [TORZNAB_KEY]:
+            return None
+        return ''.join(f'<item><title>[Torznab] 测试作品 - {i:02d}</title><guid>{base}/details/{i}</guid><comments>{base}/details/{i}</comments><enclosure url="{base}/torznab/dl/{i}?apikey={TORZNAB_KEY}&amp;file=x" length="0"/><torznab:attr name="seeders" value="9"/><torznab:attr name="peers" value="12"/><torznab:attr name="size" value="1048576"/></item>' for i in (1, 2))
+    return ''
 
 
 class Fixtures(BaseHTTPRequestHandler):
@@ -62,6 +95,31 @@ class Fixtures(BaseHTTPRequestHandler):
             return self.reply('<html><p class="bangumi-title">周日待发布 &amp; 新番</p><div class="header2-desc">尚未发布作品的真实简介。</div></html>'.encode(), 'text/html')
         if self.path.startswith(('/Home/BangumiCoverFlowByDayOfWeek', '/mikan')):
             return self.reply((ROOT / 'tests/fixtures/mikan-calendar.html').read_bytes(), 'text/html')
+        if self.path.startswith(('/acgrip/', '/nyaa/', '/dmhy/', '/acgnx/', '/torznab/', '/torrents/')):
+            SOURCE_REQUESTS.append(self.path)
+            route = parse.urlsplit(self.path).path
+            if route.startswith('/acgnx/'):
+                return self.send_error(503, 'Checking your browser')
+            if route == '/torznab/api' and 't=caps' in self.path:
+                if f'apikey={TORZNAB_KEY}' not in self.path:
+                    return self.reply(b'<error code="100" description="Invalid API Key"/>', 'application/xml')
+                return self.reply(b'<caps><server title="Fixture Indexer"/><searching><search available="yes" supportedParams="q"/></searching><categories><category id="5000" name="TV"><subcat id="5070" name="TV/Anime"/></category></categories></caps>', 'application/xml')
+            if route.startswith('/torznab/dl/'):
+                self.send_response(302)
+                self.send_header('Location', f'magnet:?xt=urn:btih:{INFO_HASH}&dn=torznab-{route.rsplit("/", 1)[-1]}')
+                self.end_headers()
+                return
+            if route == '/torrents/hop.torrent':
+                self.send_response(302)
+                self.send_header('Location', '/torrents/valid.torrent')
+                self.end_headers()
+                return
+            if route.startswith('/torrents/'):
+                return self.reply(b'<html>Just a moment...</html>' if 'html' in route else TORRENT, 'application/x-bittorrent')
+            items = source_feed(base, self.path)
+            if items is None:
+                return self.reply(b'<error code="100" description="Invalid API Key"/>', 'application/xml')
+            return self.reply(f'<rss xmlns:nyaa="https://nyaa.si/xmlns/nyaa" xmlns:torznab="http://torznab.com/schemas/2015/feed"><channel><title>Source</title>{items}</channel></rss>'.encode(), 'application/xml')
         if self.path.startswith('/poster.svg'):
             return self.reply(b'<svg xmlns="http://www.w3.org/2000/svg" width="320" height="480"><rect width="320" height="480" fill="#41645b"/><circle cx="210" cy="160" r="90" fill="#8bbdaf"/><text x="25" y="380" fill="white" font-size="30">Test fixture</text></svg>', 'image/svg+xml')
         self.send_error(404)
@@ -243,6 +301,78 @@ def start_app(real=False):
     return base, fixture, api, cleanup, data.name
 
 
+def check_anime_sources(api, fixture, node):
+    """Resource search, Torznab and generic torrent prefetch against local fixtures (fixture RPC records addUri / addTorrent)."""
+    config = api('/state')['settings']
+    sources = config['animeSources']
+    assert config['proxyTorrentDownloads'] is True and sources['acgRip']['enabled'] and not sources['acgnx']['enabled'], config
+    for key, path in [('acgRip', '/acgrip'), ('nyaa', '/nyaa/'), ('dmhy', '/dmhy'), ('acgnx', '/acgnx')]:
+        sources[key] = {'enabled': True, 'baseUrl': fixture + path}
+    api('/settings', 'PUT', config)
+    api('/settings', 'PUT', {**config, 'animeSources': {**sources, 'nyaa': {'enabled': True, 'baseUrl': 'javascript:alert(1)'}}}, expected=400)
+    endpoint = {'id': 'fx', 'name': 'Fixture Prowlarr', 'url': fixture + '/torznab/api', 'apiKey': TORZNAB_KEY, 'categories': '5070'}
+    api('/anime/torznab', 'POST', {**endpoint, 'url': fixture + '/torznab/api?apikey=leak'}, expected=400)
+    api('/anime/torznab', 'POST', endpoint)
+    caps = api('/anime/torznab/test', 'POST', endpoint)
+    assert caps['title'] == 'Fixture Indexer' and caps['anime'] and caps['searchAvailable'], caps
+    assert 'Invalid API Key' in str(api('/anime/torznab/test', 'POST', {**endpoint, 'apiKey': 'wrong'}, expected=502))
+    assert [s['id'] for s in api('/anime/sources')] == ['acgrip', 'nyaa', 'dmhy', 'acgnx', 'torznab:fx']
+
+    results = {r['sourceId']: r for r in api('/anime/search?source=all&q=' + parse.quote('测试作品'))}
+    assert results['acgnx']['error'] and results['acgnx']['items'] == [], results['acgnx']
+    assert '人机验证' in results['acgnx']['error'], results['acgnx']
+    acg = results['acgrip']['items']
+    assert len(acg) == 2 and acg[0]['url'] == fixture + '/torrents/acg-1.torrent' and acg[0]['pageUrl'] == fixture + '/acgrip/t/1', acg
+    assert results['acgrip']['subscribeRssUrl'] == fixture + '/acgrip/.xml?term=' + parse.quote('测试作品'), results['acgrip']
+    nyaa = results['nyaa']['items'][0]
+    assert nyaa['size'] == '1503238554' and nyaa['seeders'] == 120 and nyaa['pageUrl'] == fixture + '/nyaa/view/1', nyaa
+    assert results['dmhy']['items'][0]['url'].startswith('magnet:') and results['dmhy']['items'][0]['size'] == ''
+    torznab = results['torznab:fx']
+    assert torznab['sourceName'] == 'Fixture Prowlarr' and len(torznab['items']) == 2 and torznab['items'][0]['leechers'] == 3, torznab
+    assert 'apikey' not in torznab['subscribeRssUrl'] and 'cat=5070' in torznab['subscribeRssUrl'], torznab
+    api('/anime/search?source=nyaa&q=x&category=1_3&filter=2')
+    assert any(p.startswith('/nyaa/?page=rss&q=x&c=1_3&f=2') for p in SOURCE_REQUESTS), SOURCE_REQUESTS
+    api('/anime/search?source=nyaa&q=x&category=bad', expected=400)
+    api('/anime/search?source=all&q=', expected=400)
+    api('/anime/search?source=missing&q=x', expected=400)
+
+    # Torznab subscriptions are stored without the key; the server adds it, and download links 302 to magnets.
+    preview = api('/subscriptions/preview', 'POST', {'url': torznab['subscribeRssUrl'], 'filter': '', 'isFilterRegex': False})
+    assert len(preview['items']) == 2, preview
+    sub = api('/subscriptions', 'POST', {'name': 'Torznab 订阅', 'url': torznab['subscribeRssUrl'], 'nodeId': node})
+    before = set(TASKS)
+    assert api('/subscriptions/check', 'POST', {'id': sub['id']})['submitted'] == 2
+    added = [TASKS[g] for g in set(TASKS) - before]
+    assert sorted(t['files'][0]['uris'][0]['uri'] for t in added) == [f'magnet:?xt=urn:btih:{INFO_HASH}&dn=torznab-{i}' for i in (1, 2)], added
+    backup = json.dumps(api('/backup'))
+    assert TORZNAB_KEY not in backup and 'apikey=***' in backup, backup
+
+    # Generic .torrent prefetch, outside the Mikan host (whose fallback would reach the real site).
+    config = api('/state')['settings']
+    mikan = config['mikanBaseUrl'], config['mikanFallbackUrl']
+    api('/settings', 'PUT', {**config, 'mikanBaseUrl': 'https://mikan.invalid', 'mikanFallbackUrl': ''})
+
+    def add(url):
+        before = set(TASKS)
+        result = api('/tasks', 'POST', {'urls': [url], 'nodeId': node, 'directory': None})[0]
+        new = [TASKS[g] for g in set(TASKS) - before]
+        return result, (new[0]['files'][0]['uris'][0]['uri'] if new else None)
+
+    assert add(fixture + '/torrents/valid.torrent')[1] == 'fixture.torrent'
+    assert add(fixture + '/torrents/hop.torrent')[1] == 'fixture.torrent'
+    result, uri = add(fixture + '/torrents/html.torrent')
+    assert uri is None and '不是有效种子' in result['error'], result
+    unreachable = f'http://127.0.0.1:{free_port()}/missing.torrent'
+    assert add(unreachable)[1] == unreachable
+    assert any('已交由下载节点直接下载' in n['message'] for n in api('/state')['notices'])
+    api('/settings', 'PUT', {**api('/state')['settings'], 'proxyTorrentDownloads': False})
+    assert add(fixture + '/torrents/valid.torrent')[1] == fixture + '/torrents/valid.torrent'
+    config = api('/state')['settings']
+    api('/settings', 'PUT', {**config, 'proxyTorrentDownloads': True, 'mikanBaseUrl': mikan[0], 'mikanFallbackUrl': mikan[1]})
+    api('/subscriptions/' + sub['id'], 'DELETE')
+    print('PASS anime sources: multi-source search, isolation, Torznab caps/key injection/302 magnet, torrent prefetch')
+
+
 def main():
     global FEED_VERSION
     parser = argparse.ArgumentParser()
@@ -378,6 +508,8 @@ def main():
             results = api('/tasks/remove-by-status','POST',{'nodeId':node,'statuses':['paused']})
             assert any(r['gid']=='status-paused' and r['removed'] for r in results)
             assert 'status-paused' not in TASKS and 'status-active' in TASKS
+        if not args.real_aria:
+            check_anime_sources(api, fixture, node)
         backup = api('/backup')
         assert api('/backup/import', 'POST', backup)['imported'] == 0
         api('/not-a-route', expected=404)

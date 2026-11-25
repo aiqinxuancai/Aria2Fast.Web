@@ -5,10 +5,10 @@ namespace Aria2Fast.Web.Infrastructure;
 
 public sealed class HttpGateway(StateStore store)
 {
-    public HttpClient Create(bool useProxy = true, int timeoutSeconds = 40)
+    public HttpClient Create(bool useProxy = true, int timeoutSeconds = 40, bool allowRedirect = true)
     {
         var proxy = useProxy ? store.Read().Settings.ProxyUrl : "";
-        var handler = new HttpClientHandler { AutomaticDecompression = DecompressionMethods.All };
+        var handler = new HttpClientHandler { AutomaticDecompression = DecompressionMethods.All, AllowAutoRedirect = allowRedirect };
         if (!string.IsNullOrWhiteSpace(proxy)) handler.Proxy = new WebProxy(Validation.HttpUrl(proxy));
         var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(timeoutSeconds), MaxResponseContentBufferSize = 16 * 1024 * 1024 };
         client.DefaultRequestHeaders.UserAgent.ParseAdd("Aria2Fast-Web/1.0");

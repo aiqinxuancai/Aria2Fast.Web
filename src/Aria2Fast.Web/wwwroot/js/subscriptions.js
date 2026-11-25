@@ -1,5 +1,5 @@
 import {directoryField,bindDirectory,rememberDirectory,previewDialog} from './directory-picker.js';
-import {$,esc,state,api,toast,run,modal,closeModal,heading,empty,field,check,bindForm,nodeOptions,time} from './core.js';
+import {$,esc,state,api,toast,run,modal,closeModal,heading,empty,field,check,bindForm,nodeOptions,time,maskSecrets} from './core.js';
 let list=[];
 let removeMenuListeners=()=>{};
 function subscriptionCard(s){
@@ -9,7 +9,7 @@ function subscriptionCard(s){
   const submitted=s.history.filter(h=>!h.skipped).length;
   const status=s.enabled?'自动追更':'已暂停';
   const rules=[s.filter?['包含'+(s.isFilterRegex?' · 正则':''),s.filter]:null,s.excludeFilter?['排除'+(s.isExcludeFilterRegex?' · 正则':''),s.excludeFilter]:null].filter(Boolean);
-  return '<article class="sub-card"><header class="sub-heading"><span class="sub-source" title="'+esc(s.url)+'">'+esc(source)+'</span><span class="badge '+(s.enabled?'':'paused')+'">'+status+'</span></header>'+
+  return '<article class="sub-card"><header class="sub-heading"><span class="sub-source" title="'+esc(maskSecrets(s.url))+'">'+esc(source)+'</span><span class="badge '+(s.enabled?'':'paused')+'">'+status+'</span></header>'+
     '<h3 title="'+esc(s.name)+'">'+esc(s.name)+'</h3><div class="sub-node"><span>下载至</span><strong>'+esc(node)+'</strong></div>'+
     '<dl class="sub-stats"><div><dt>已提交下载</dt><dd>'+submitted+'<small> 次</small></dd></div><div><dt>最近检查</dt><dd class="sub-checked">'+esc(time(s.lastChecked))+'</dd></div></dl>'+
     '<div class="sub-rules">'+(rules.length?rules.map(([label,value])=>'<div><span>'+label+'</span><code title="'+esc(value)+'">'+esc(value)+'</code></div>').join(''):'<span class="sub-rule-empty">接收全部内容</span>')+'</div>'+

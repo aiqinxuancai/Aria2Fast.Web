@@ -40,6 +40,33 @@ public static class Validation
         if (!string.IsNullOrWhiteSpace(s.NamePath)) s.NamePath = Segment(s.NamePath);
     }
 
+    public static void AnimeSources(AnimeSourcesSettings sources)
+    {
+        foreach (var config in new[] { sources.AcgRip, sources.Nyaa, sources.Dmhy, sources.Acgnx })
+        {
+            config.BaseUrl = config.BaseUrl?.Trim() ?? "";
+            if (config.BaseUrl.Length > 0) HttpUrl(config.BaseUrl);
+        }
+        foreach (var endpoint in sources.Torznab) Torznab(endpoint);
+        if (sources.Torznab.Select(e => e.Id).Distinct().Count() != sources.Torznab.Count) throw new ArgumentException("Torznab 索引器 ID 重复");
+    }
+
+    public static void Torznab(TorznabEndpoint endpoint)
+    {
+        endpoint.Id = endpoint.Id?.Trim() ?? "";
+        endpoint.Name = endpoint.Name?.Trim() ?? "";
+        endpoint.Url = endpoint.Url?.Trim() ?? "";
+        endpoint.ApiKey = endpoint.ApiKey?.Trim() ?? "";
+        endpoint.Categories = Regex.Replace(endpoint.Categories ?? "", @"\s", "");
+        if (!Regex.IsMatch(endpoint.Id, "^[A-Za-z0-9_-]{1,64}$")) throw new ArgumentException("Torznab 索引器 ID 无效");
+        if (endpoint.Name.Length is 0 or > 60) throw new ArgumentException("请填写 1 至 60 个字符的索引器名称");
+        var url = HttpUrl(endpoint.Url);
+        // Keys stay in their own field so they never end up in subscription URLs or backups.
+        if (Regex.IsMatch(url.Query, @"[?&](jackett_)?apikey=", RegexOptions.IgnoreCase)) throw new ArgumentException("请将 API Key 填写在单独的输入框中，不要放在地址里");
+        if (endpoint.ApiKey.Length > 256) throw new ArgumentException("API Key 过长");
+        if (!Regex.IsMatch(endpoint.Categories, @"^(\d{1,6}(,\d{1,6}){0,19})?$")) throw new ArgumentException("分类应为逗号分隔的数字，例如 5070");
+    }
+
     public static string LocalFile(string root, string path)
     {
         var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;

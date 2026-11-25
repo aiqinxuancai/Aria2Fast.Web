@@ -6,6 +6,7 @@ namespace Aria2Fast.Web.Services;
 
 public sealed class AriaRpc(StateStore store, HttpGateway http)
 {
+    private readonly TorrentDownloadService torrents = new(http);
     private readonly SemaphoreSlim retryGate = new(1);
     private readonly Dictionary<string, string> retried = [];
     public async Task<string> Retry(string gid, string? nodeId, CancellationToken ct)
@@ -85,13 +86,22 @@ public sealed class AriaRpc(StateStore store, HttpGateway http)
     private async Task<string> Submit(string[] urls, Dictionary<string, string> options, string nodeId, CancellationToken ct)
     {
         var settings = store.Read().Settings;
-        if (Uri.TryCreate(urls[0], UriKind.Absolute, out var source) && MikanTorrentDownload.Matches(source, settings))
+        if (Uri.TryCreate(urls[0], UriKind.Absolute, out var source) && TorrentDownloadService.Matches(source, settings))
         {
-            var data = await MikanTorrentDownload.Fetch(source, settings, http, ct);
-            var torrentOptions = new Dictionary<string, string>(options);
+            PrefetchedTorrent? fetched = null;
+            try { fetched = await torrents.Fetch(source, settings, ct); }
+            catch (TorrentPrefetchException ex) when (ex.Unreachable && !TorrentDownloadService.IsMikan(source, settings))
+            {
+                // The download node may still reach a site the Web server cannot; keep the previous direct behaviour.
+                store.Log("服务端预取种子失败，已交由下载节点直接下载：" + source.Authority, "warning", ex.Message);
+            }
             // An old failed HTTP task's output name belongs to the torrent, not its payload.
+            var torrentOptions = new Dictionary<string, string>(options);
             torrentOptions.Remove("out");
-            return (await Call("addTorrent", [Convert.ToBase64String(data), Array.Empty<string>(), torrentOptions], nodeId, ct)).ToString();
+            if (fetched?.Data is { } data)
+                return (await Call("addTorrent", [Convert.ToBase64String(data), Array.Empty<string>(), torrentOptions], nodeId, ct)).ToString();
+            if (fetched?.Magnet is { } magnet)
+                return (await Call("addUri", [new[] { magnet }, torrentOptions], nodeId, ct)).ToString();
         }
         return (await Call("addUri", [urls, options], nodeId, ct)).ToString();
     }

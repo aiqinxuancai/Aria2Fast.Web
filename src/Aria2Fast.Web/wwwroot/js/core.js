@@ -1,10 +1,11 @@
 export const $ = (selector, root = document) => root.querySelector(selector);
 export const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export const state = { config: null, page: '', tasks: [], selected: new Set(), filter: 'all', search: '' };
-export const bytes = value => { let n=Number(value)||0; const units=['B','KB','MB','GB','TB']; let i=0; while(n>=1024&&i<4){n/=1024;i++;} return (i?n.toFixed(1):n)+' '+units[i]; };
+export const bytes = value => { if(value===null||value===undefined||value==='')return '—'; let n=Number(value); if(!Number.isFinite(n)||n<0)return '—'; const units=['B','KB','MB','GB','TB']; let i=0; while(n>=1024&&i<4){n/=1024;i++;} return (i?n.toFixed(1):n)+' '+units[i]; };
+export const maskSecrets = value => String(value ?? '').replace(/([?&](?:jackett_)?apikey=)[^&#]*/gi,'$1***');
 export const time = value => value ? new Date(value).toLocaleString('zh-CN', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '尚未检查';
 export const statusName = value => ({active:'下载中',waiting:'等待中',paused:'已暂停',complete:'已完成',error:'出错',removed:'已移除'}[value] || value);
-export const nameOf = task => task.bittorrent?.info?.name || task.files?.[0]?.path?.split(/[\\/]/).pop() || task.files?.[0]?.uris?.[0]?.uri || task.gid;
+export const nameOf = task => task.bittorrent?.info?.name || task.files?.[0]?.path?.split(/[\\/]/).pop() || maskSecrets(task.files?.[0]?.uris?.[0]?.uri) || task.gid;
 export async function api(path, method='GET', body) {
   const options = {method, headers:{'X-Aria2Fast':'1'}};
   if(body!==undefined){if(body instanceof FormData) options.body=body; else {options.headers['Content-Type']='application/json'; options.body=JSON.stringify(body);}}

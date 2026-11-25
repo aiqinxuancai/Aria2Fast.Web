@@ -22,6 +22,7 @@
 - ⚡ **一处管理所有下载**：支持 HTTP、FTP、磁力链接、种子和 Metalink，可暂停、限速、选择种子内的文件；多台 Aria2（本机、NAS、服务器）一键切换。
 - 📺 **追番自动下载**：订阅任意 RSS，或在番剧日历里直接点「订阅」字幕组，新的一集发布后自动开始下载，可用关键词或正则过滤。
 - 🔍 **发现新番**：按季度、星期浏览 Mikan 新番，显示热度和更新集数，可接入 TMDB 评分。
+- 🌐 **多源搜索补源**：一次搜索 ACG.RIP、Nyaa、动漫花园、末日动漫，还能接入 Prowlarr / Jackett 覆盖更多公开站和 PT 站；搜索结果可直接下载，或一键转为订阅。
 - 🤖 **AI 帮你挑番、整理文件**：AI 搜索资料写出番剧评析、翻译简介、按作品自动分文件夹、整理已下载文件的名称。支持 OpenAI、Claude、Gemini 及其兼容接口。
 - 🔔 **下载完成提醒**：通过 PushDeer 或 Bark 推送到手机。
 - 📱 **手机也好用**：响应式布局加底部导航，浅色/深色主题可跟随系统；已完成的文件可以直接用浏览器取回。
@@ -124,7 +125,7 @@ docker compose up -d
 <details>
 <summary><b>番剧页面打不开，或者种子下载失败？</b></summary>
 
-在「设置中心」配置网络代理，或填写 Mikan 种子备用站点，详见 [Mikan 种子备用站点](docs/DEPLOYMENT.md#mikan-种子备用站点)。
+在「设置中心」配置网络代理，或填写 Mikan 种子备用站点，详见 [Mikan 种子备用站点](docs/DEPLOYMENT.md#mikan-种子备用站点)。搜索源打不开时，可以改用镜像地址，或通过 Prowlarr / Jackett 接入，详见 [资源搜索源](docs/DEPLOYMENT.md#资源搜索源)。
 
 </details>
 
@@ -137,7 +138,7 @@ docker compose up -d
 
 ## 文档
 
-- [部署与配置](docs/DEPLOYMENT.md)：Docker 进阶、环境变量、下载调优、网络设置
+- [部署与配置](docs/DEPLOYMENT.md)：Docker 进阶、环境变量、下载调优、网络设置、资源搜索源
 - [桌面集成](docs/DESKTOP.md)：开机自启、桌面快捷方式、端口占用处理
 - [番剧调查与评析](docs/AI-RESEARCH.md)：AI 评析的工作方式与搜索服务配置
 - [功能说明](docs/FEATURES.md)：与桌面版的功能对照

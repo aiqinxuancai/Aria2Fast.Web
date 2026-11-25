@@ -23,7 +23,8 @@ public sealed class Subscription
 }
 
 public sealed record SubscriptionEntry(string Key, string Title, string Url, string? Gid, DateTimeOffset Time, bool Skipped = false);
-public sealed record FeedItem(string Key, string Title, string Url, DateTimeOffset? Published, string Size);
+public sealed record FeedItem(string Key, string Title, string Url, DateTimeOffset? Published, string Size,
+    string? InfoHash = null, int? Seeders = null, int? Leechers = null, string? PageUrl = null, string? Category = null);
 public sealed record FeedPreview(string Title, List<FeedItem> Items);
 public sealed record AnimeCard(string Id, string Name, string Url, string Image, string Day, bool HasReleases = true);
 public sealed record AnimeGroup(string Name, string Url);

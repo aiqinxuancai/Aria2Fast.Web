@@ -27,6 +27,7 @@ builder.Services.AddSingleton<DownloadPaths>();
 builder.Services.AddSingleton<FeedService>();
 builder.Services.AddSingleton<AiService>();
 builder.Services.AddSingleton<MikanService>();
+builder.Services.AddSingleton<AnimeSearchService>();
 builder.Services.AddSingleton<SubscriptionService>();
 builder.Services.AddSingleton<BackupService>();
 builder.Services.AddHostedService<OssSyncWorker>();

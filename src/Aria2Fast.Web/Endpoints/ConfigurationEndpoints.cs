@@ -31,6 +31,7 @@ public static class ConfigurationEndpoints
                     throw new ArgumentException("启用自动同步前请填写完整 OSS 配置");
             }
             if (input.ProxyUrl.Length > 0) Validation.HttpUrl(input.ProxyUrl);
+            Validation.AnimeSources(input.AnimeSources);
             if (string.IsNullOrWhiteSpace(input.DownloadDirectory) || input.DownloadDirectory.Contains('\n') || input.DownloadDirectory.Contains('\r')) throw new ArgumentException("下载目录无效");
             input.DownloadDirectory = Path.GetFullPath(input.DownloadDirectory);
             foreach (var profile in input.AiProfiles) { Validation.HttpUrl(profile.BaseUrl); if (string.IsNullOrWhiteSpace(profile.ModelName)) throw new ArgumentException("模型名称不能为空"); }

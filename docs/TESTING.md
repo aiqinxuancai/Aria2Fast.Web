@@ -1,5 +1,13 @@
 # 实际测试记录
 
+## 2026-11-25 多下载源搜索与通用种子预取
+
+- `dotnet build -c Release` 通过，无警告、无错误；61 项核心测试通过（新增 15 项），覆盖 Nyaa / DMHY / ACG.RIP / Torznab / Kisssub 解析、大小换算、旧订阅去重键不变、Torznab 错误文档、API Key 注入与隐藏、搜索地址与镜像路径、预取匹配规则和配置校验。
+- `python tests/integration.py` 通过：多源并行搜索与单源失败隔离（模拟 503 人机验证）、分类透传与非法分类拒绝、Torznab 能力测试与错误 Key、订阅地址不含 API Key 但预览和检查可用、下载链接 302 跳转磁力链、合法种子 / 跳转链 / HTML 错误页 / 无法连接时交由节点 / 关闭开关、备份不含 API Key。
+- `python tests/mikan_fallback.py`（真实 aria2）全部通过，Mikan 主备站点切换与旧失败任务重试行为不变；`integration.py --real-aria`、`local_tuning.py`、`notifications.py`、`real_downloads.py` 通过。
+- `node tests/browser/smoke.cjs` 通过：日历 / 搜索切换、结果合并与来源标记、未知大小显示「—」、一键订阅与下载、详情页跨源搜索、设置保存与 Torznab 测试、390px 手机无横向溢出，无 JS 错误。
+- 未连接真实 ACG.RIP、Nyaa、动漫花园、末日动漫或 Prowlarr / Jackett；各站真实 RSS 结构以调研为准，站点改版后可能需要调整。
+
 ## 2026-10-13 Bark 与独立通知开关
 
 - `dotnet build -c Release` 通过，无警告、无错误；46 项核心测试通过。

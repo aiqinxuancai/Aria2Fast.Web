@@ -159,6 +159,7 @@ try
     Test("Corrupt state fails rather than resets", () => { File.WriteAllText(Path.Combine(temporary, "state.json"), "invalid-json"); Throws<System.Text.Json.JsonException>(() => new StateStore(config)); });
 }
 finally { Directory.Delete(temporary, true); }
+passed += AnimeSourcesTests.Run();
 passed += await AiResearchTests.Run();
 passed += await LocalAriaStartupTests.Run();
 Console.WriteLine($"{passed} tests passed.");
