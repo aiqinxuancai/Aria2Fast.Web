@@ -1,84 +1,148 @@
+<div align="center">
+
+<img src="src/Aria2Fast.Web/wwwroot/logo.png" alt="Aria2Fast" height="88">
+
 # Aria2Fast Web
 
-基于桌面 Aria2Fast 改写的 ASP.NET Core 10 Web 应用，独立构建，不依赖 WPF 或原项目目录。
+**好看又好用的 Aria2 网页面板：下载管理、追番订阅、AI 番剧评析，电脑和手机都能用。**
 
-## 启动
+[![Release](https://img.shields.io/github/v/release/aiqinxuancai/Aria2Fast.Web?style=flat-square)](https://github.com/aiqinxuancai/Aria2Fast.Web/releases)
+[![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/aiqinxuancai/Aria2Fast.Web/pkgs/container/aria2fast.web)
+![Platform](https://img.shields.io/badge/platform-Docker%20%7C%20Windows%20%7C%20macOS-555?style=flat-square)
+[![License](https://img.shields.io/github/license/aiqinxuancai/Aria2Fast.Web?style=flat-square)](LICENSE.txt)
 
-在项目根目录执行：
+[快速开始](#快速开始) · [功能](#功能) · [截图](#截图) · [常见问题](#常见问题)
 
-    dotnet run --project src/Aria2Fast.Web
+<img src="docs/images/downloads.png" alt="下载任务" width="100%">
 
-访问 http://localhost:8080 。手机使用同一局域网内服务器的 IP 和 8080 端口，Windows 防火墙需允许访问。
-
-首次启动自动生成随机密码，终端显示 initial-password.txt 的实际路径。默认数据目录位于程序输出目录下的 data；可通过 ARIA2FAST_DATA_DIR 指定固定目录。登录后在设置中心修改密码。也可用 ARIA2FAST_PASSWORD 环境变量设置至少 12 字符的密码，此时密码由环境变量管理。
-
-源码开发运行需要自行安装 aria2 或指定其执行文件；Windows 可执行 scripts/install-aria2.ps1，默认安装到 Debug 输出目录的 aria2 子目录。Docker 与 GitHub Release 流程自动包含 aria2。
-
-## Docker
-
-复制 .env.example 为 .env，填写 ARIA2FAST_PASSWORD，然后执行 docker compose pull 和 docker compose up -d。默认 compose.yaml 仅拉取 GHCR 镜像，可直接用于 Unraid Compose Manager，无需源码或 Dockerfile。镜像内安装真实 aria2 执行文件，以非 root 用户运行，公开 Web 8080、BT TCP 16888 和 DHT UDP 16888 端口；RPC 保持容器内部监听。
-
-使用 GHCR：将 .env 中 ARIA2FAST_IMAGE 设置为 ghcr.io/你的组织或用户名/仓库名:v1.0.0（仓库名须小写），执行 docker compose pull，然后 docker compose up -d --no-build。
-
-从源码本地构建：在含 Dockerfile 的完整项目根目录执行 docker compose -f compose.yaml -f compose.build.yaml up -d --build。本地构建配置单独放在 compose.build.yaml，镜像部署时不要启用此覆盖文件。旧版配置请移除 build: .；若另有 pull_policy: build 也应移除，否则管理器可能跳过拉取并尝试构建。
-
-数据卷 app-data 映射 /data，downloads 映射 /downloads。查看随机初始密码：docker compose exec aria2fast cat /data/initial-password.txt。可将命名卷改为宿主机目录，确保容器 app 用户可读写。更新镜像时保留两个卷。不要使用 down -v 删除需要保留的数据。
-
-| 环境变量 | 用途 |
-| --- | --- |
-| ARIA2FAST_DATA_DIR | 配置、订阅历史、Aria2 会话和 Cookie 密钥目录 |
-| ARIA2FAST_DOWNLOAD_DIR | 首次运行默认本地下载目录 |
-| ARIA2FAST_PASSWORD | 至少 12 字符的管理员密码，重启时应用 |
-| ARIA2FAST_LOCAL_ENABLED | true / false，启动时覆盖本地引擎开关 |
-| ASPNETCORE_URLS | Web 监听地址，默认 http://0.0.0.0:8080 |
-
-公网访问请使用 HTTPS 反向代理并限制访问范围，不要公开 Aria2 RPC 端口。配置文件包含服务密钥，应保护数据卷；管理员设置接口会向已登录浏览器返回可编辑的密钥。
+</div>
 
 ## 功能
 
-- HTTP / FTP / Magnet 批量添加，Torrent / Metalink 上传；进度、速度、暂停/继续、批量移除、队列置顶、限速、Tracker、种子选文件及 Peers。
-- 本地 Aria2 生命周期管理、会话保存、远程节点管理及切换；本地全局参数在重启后恢复。
-- RSS / Atom 自动轮询、关键词 OR / 正则 / 排除过滤、匹配预览；新订阅默认补齐已有资源，可选仅追更；支持重新下载全部匹配资源、下载历史去重、季度目录、AI 按作品分目录。
-- Mikan 季度与星期浏览、搜索、字幕组订阅、单条资源下载；可选 TMDB 元数据、持久化 AI 翻译与评析。评析 Agent 支持 Brave、Serper、SerpApi、Tavily 搜索与网页正文抓取，调查原作及改编信息并附来源，详见 [番剧调查与评析](docs/AI-RESEARCH.md)。
-- OpenAI Chat Completions、Responses、Claude Messages、Gemini 四类 AI 协议；多组配置管理。
-- 已完成本地文件浏览器取回、AI 重命名预览与确认；PushDeer / Bark 下载完成推送（独立开关与测试按钮）、活动记录。
-- 订阅 JSON 导出/合并导入、桌面端订阅数组兼容、OSS 手动上传、合并与可选定时同步。
-- 手机底部导航、响应式布局、浅色/深色/跟随系统并实时响应系统变化。
+- ⚡ **一处管理所有下载**：支持 HTTP、FTP、磁力链接、种子和 Metalink，可暂停、限速、选择种子内的文件；多台 Aria2（本机、NAS、服务器）一键切换。
+- 📺 **追番自动下载**：订阅任意 RSS，或在番剧日历里直接点「订阅」字幕组，新的一集发布后自动开始下载，可用关键词或正则过滤。
+- 🔍 **发现新番**：按季度、星期浏览 Mikan 新番，显示热度和更新集数，可接入 TMDB 评分。
+- 🤖 **AI 帮你挑番、整理文件**：AI 搜索资料写出番剧评析、翻译简介、按作品自动分文件夹、整理已下载文件的名称。支持 OpenAI、Claude、Gemini 及其兼容接口。
+- 🔔 **下载完成提醒**：通过 PushDeer 或 Bark 推送到手机。
+- 📱 **手机也好用**：响应式布局加底部导航，浅色/深色主题可跟随系统；已完成的文件可以直接用浏览器取回。
+- 📦 **开箱即用**：Docker 一条命令部署；Windows 和 macOS 解压就能运行，已内置 aria2。
 
-具体迁移差异和测试范围见 docs/FEATURES.md。图片、评分、下载记录均来自实际接口；无数据时显示空状态。
+## 截图
 
-蜜柑种子下载支持备用站点：设置中心 → 下载设置 → 订阅与网络，填写“Mikan 种子备用站点”（默认 `https://mikanani.me`，留空禁用）。原链接获取失败、超时或返回非种子内容时，保留路径及查询参数尝试备用站点。由 Web 服务使用网络代理获取种子，再提交到所选下载节点；新建、订阅任务及旧失败任务的“重试”均生效，保存后无需重启。两个站点均失败时显示各自原因；此设置不切换番剧页面或 RSS 源站。
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/anime.png" alt="发现番剧"></td>
+    <td width="50%"><img src="docs/images/anime-detail.png" alt="番剧详情与 AI 评析"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>发现番剧</b>：按季度、星期浏览新番</td>
+    <td align="center"><b>番剧详情</b>：TMDB 评分、AI 评析、一键订阅字幕组</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/images/subscriptions.png" alt="我的订阅"></td>
+    <td width="50%"><img src="docs/images/mobile.png" alt="手机界面"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>我的订阅</b>：自动追更，过滤规则一目了然</td>
+    <td align="center"><b>手机界面</b>：随时随地管理下载</td>
+  </tr>
+</table>
 
-## 本地下载调优
+## 快速开始
 
-设置中心 → 下载设置提供 BT TCP / DHT UDP 端口、HTTP 连接与分片、BT 连接上限、总上传/下载限速、DHT 和 PEX。总上传/下载限速保存后立即生效（包含已有任务）；其他调优参数保存后在节点管理中重启本地服务。配置会随应用数据持久化；不要手动编辑启动时生成的 aria2.conf。默认同时下载 3 个任务、HTTP 8 连接 / 8 分片、BT 最多 128 个连接；已经保存的全局参数优先。
+### Docker（推荐，适合 NAS / 服务器）
 
-公共 Tracker 自动更新默认关闭。仅下载公共 BT 时，可开启并点击“保存并更新 Tracker”，默认每天从 ngosang/trackerslist 的精选列表更新。支持最多 5 个列表来源，接受 HTTP / HTTPS / UDP Tracker，去重并最多保留 100 个。下载列表使用设置中的网络代理；失败保留上次有效缓存，并在一小时后重试。手动 Tracker 与自动列表合并，原种子 Tracker 不会被删除。更新用于后续新任务，已有任务不自动修改；关闭此功能后请重启本地服务。PT 私有种子不要开启公共 Tracker 功能。
+新建一个文件夹，保存下面的内容为 `compose.yaml`：
 
-“连接诊断”显示 RPC、实际参数、本机监听端口、Tracker 更新状态，以及活跃 BT 任务连接数、做种连接数和下载速度。它不进行公网探测，不能据本机监听判断外部可达。Docker 默认映射 16888 TCP / UDP；修改设置中的端口时，请同步修改 compose.yaml 的映射，并按网络环境配置路由器与防火墙。HTTP 增加分片对 BT 无效，无人做种的资源无法靠参数保证提速。
+```yaml
+services:
+  aria2fast:
+    image: ghcr.io/aiqinxuancai/aria2fast.web:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"         # 网页
+      - "16888:16888/tcp"   # BT
+      - "16888:16888/udp"   # DHT
+    environment:
+      TZ: Asia/Shanghai
+      ARIA2FAST_PASSWORD: change-me-please   # 改成你自己的登录密码，至少 12 位
+    volumes:
+      - app-data:/data
+      - downloads:/downloads
 
-## Windows / macOS 发行包
+volumes:
+  app-data:
+  downloads:
+```
 
-解压到可写目录，Windows 运行 Start.cmd，macOS 运行 Start.command 或终端 ./Aria2Fast.Web。发行包自包含 .NET 运行时与 aria2；macOS 包含非系统动态库，无需用户安装 Homebrew。当前未配置 Apple Developer 签名或公证，macOS 可能要求在系统隐私与安全设置允许启动。停止终端进程会停止服务器。
+然后启动：
 
-## GitHub Actions
+```bash
+docker compose up -d
+```
 
-将本目录作为独立 GitHub 仓库根目录。推送任意 tag 触发 .github/workflows/release.yml：先检查，再发布 GHCR 的 linux/amd64、linux/arm64 镜像以及 Windows x64、macOS Intel x64、macOS Apple Silicon arm64 自包含发行包。附带 SHA256SUMS.txt 和当前源码归档。带连字符的 tag 标记为预发行版；不带连字符的 tag 同时更新 latest。
+浏览器打开 `http://服务器IP:8080` 即可登录。如果不设置 `ARIA2FAST_PASSWORD`，程序会生成随机密码，用 `docker compose exec aria2fast cat /data/initial-password.txt` 查看。
 
-使用仓库 GITHUB_TOKEN，流程声明 packages:write 和 contents:write；组织策略仍需允许发布 Packages/Release。首次公开镜像可能需要在 GHCR 包设置中调整可见性。本地工作没有推送仓库或 tag，不会自动触发远程发布。
+想把文件直接下载到宿主机目录、指定镜像版本或从源码构建，请看 [部署与配置](docs/DEPLOYMENT.md)。
 
-## 验证
+### Windows / macOS
 
-    dotnet build -c Release
-    dotnet run --project tests/Aria2Fast.Web.Tests -c Release --no-build
-    python tests/integration.py
-    cd tests/browser
-    npm install
-    npx playwright install chromium
-    node smoke.cjs
+1. 在 [Releases](https://github.com/aiqinxuancai/Aria2Fast.Web/releases) 下载对应平台的压缩包，解压到任意可写目录。
+2. Windows 双击 `Start.cmd`；macOS 双击 `Start.command`。
+3. 浏览器会自动打开。首次登录的随机密码保存在程序目录的 `data/initial-password.txt`，终端窗口会显示它的位置。
 
-核心测试无需额外测试框架；接口测试用本地 HTTP fixtures 替代 RPC/Mikan/AI。发行 CI 另用 tests/integration.py --real-aria 和 tests/real_downloads.py 验证真实捆绑 aria2 下载、会话恢复、Torrent 和 Metalink。常规 CI 还运行 tests/browser/real.cjs，通过手机模拟浏览器下载并校验取回文件。Docker CI 验证容器启动、认证和本地 RPC。截图位于 artifacts/screenshots；真实测试命令、实测结果和未验证范围见 docs/TESTING.md。
+在设置中可以开启开机自启、创建桌面快捷方式。macOS 版本暂未签名，首次运行可能需要在「系统设置 → 隐私与安全性」中允许。
 
-源代码按项目规范使用 CRLF，C# 文件为 UTF-8 BOM；Shell、Dockerfile 与 workflow 使用适合 Linux 执行的 LF。许可证见 LICENSE.txt，第三方归属见 THIRD-PARTY-NOTICES.md。
+### 用手机访问
 
-桌面端支持自动打开浏览器、端口占用后递增重试、隐藏窗口的登录自启及创建桌面快捷方式。桌面 Release 使用自包含单文件主程序；运行与发布说明见 [桌面集成](docs/DESKTOP.md)。
+手机和电脑连同一个局域网，浏览器打开 `http://电脑IP:8080`。Windows 首次使用时请在防火墙提示中允许访问。
+
+## 使用指南
+
+1. **修改密码**：登录后在「设置中心」修改初始密码。
+2. **添加下载**：点右上角「新建任务」，粘贴链接或磁力链接，也可以上传种子文件。
+3. **订阅番剧**：在「发现番剧」中打开作品，选择字幕组点「订阅」；也可以在「我的订阅」添加任意 RSS 地址。
+4. **连接更多 Aria2**：在「设置中心」添加远程 Aria2 的 RPC 地址和密钥，之后在右上角切换节点。
+5. **可选增强**：在设置中填写 AI 服务、TMDB、搜索服务或推送的 Key，即可开启对应功能。AI 评析的原理和配置见 [番剧调查与评析](docs/AI-RESEARCH.md)。
+
+## 常见问题
+
+<details>
+<summary><b>忘记密码怎么办？</b></summary>
+
+设置环境变量 `ARIA2FAST_PASSWORD`（至少 12 位）后重启程序，即可用新密码登录。设置后密码由环境变量管理。
+
+</details>
+
+<details>
+<summary><b>BT 下载速度很慢？</b></summary>
+
+请确认 16888 端口（TCP 和 UDP）已在 Docker、防火墙和路由器中放行。下载公开资源时，可以在「设置中心 → 下载设置」开启公共 Tracker 自动更新（PT 私有种子请勿开启）。更多参数见 [下载调优](docs/DEPLOYMENT.md#下载调优)。
+
+</details>
+
+<details>
+<summary><b>番剧页面打不开，或者种子下载失败？</b></summary>
+
+在「设置中心」配置网络代理，或填写 Mikan 种子备用站点，详见 [Mikan 种子备用站点](docs/DEPLOYMENT.md#mikan-种子备用站点)。
+
+</details>
+
+<details>
+<summary><b>可以从外网访问吗？</b></summary>
+
+可以，但请通过 HTTPS 反向代理访问，并且不要对外暴露 Aria2 RPC 端口。详见 [公网访问与安全](docs/DEPLOYMENT.md#公网访问与安全)。
+
+</details>
+
+## 文档
+
+- [部署与配置](docs/DEPLOYMENT.md)：Docker 进阶、环境变量、下载调优、网络设置
+- [桌面集成](docs/DESKTOP.md)：开机自启、桌面快捷方式、端口占用处理
+- [番剧调查与评析](docs/AI-RESEARCH.md)：AI 评析的工作方式与搜索服务配置
+- [功能说明](docs/FEATURES.md)：与桌面版的功能对照
+- [开发与发布](docs/DEVELOPMENT.md)：源码运行、测试、构建与发布流程
+
+## 许可证
+
+本项目衍生自 [Aria2Fast](https://github.com/aiqinxuancai/Aria2Fast)，以 [GPL-3.0](LICENSE.txt) 许可证发布，第三方组件见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
