@@ -33,6 +33,20 @@ public sealed class MikanService(StateStore store, HttpGateway http, IMemoryCach
         finally { badgeGate.Release(); }
     }
 
+    /// <summary>Bangumi subject linked from the Mikan detail page ("Bangumi番组计划链接"); null when the page has none.</summary>
+    public async Task<int?> BangumiTvId(string id, CancellationToken ct)
+    {
+        if (!Regex.IsMatch(id, @"^\d{1,12}$")) throw new ArgumentException("番剧 ID 无效");
+        var key = $"bgm:{Root}:{id}";
+        if (cache.TryGetValue<int?>(key, out var hit)) return hit;
+        var result = ParseBangumiTvId(await http.GetTextAsync(Root + "/Home/Bangumi/" + id, ct));
+        cache.Set(key, result, result == null ? TimeSpan.FromHours(1) : TimeSpan.FromDays(1));
+        return result;
+    }
+
+    public static int? ParseBangumiTvId(string html) =>
+        Regex.Match(html, @"(?:bgm|bangumi)\.tv/subject/(\d{1,9})\b") is { Success: true } match ? int.Parse(match.Groups[1].Value) : null;
+
     public async Task<List<AnimeCard>> List(int? year, string? season, bool refresh, CancellationToken ct)
     {
         if (year is < 2000 or > 2200 || (season != null && !new[] { "春", "夏", "秋", "冬" }.Contains(season))) throw new ArgumentException("年份或季度无效");

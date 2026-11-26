@@ -15,7 +15,14 @@ public static class SubscriptionEndpoints
             store.Update(s =>
             {
                 var previous = s.Subscriptions.FirstOrDefault(x => x.Id == input.Id);
-                if (previous != null) { input.History = previous.History; input.Initialized = previous.Initialized; input.LastChecked = previous.LastChecked; }
+                if (previous != null)
+                {
+                    input.History = previous.History; input.Initialized = previous.Initialized; input.LastChecked = previous.LastChecked;
+                    // The media library fills these in; a form opened earlier must not erase them, and they no longer apply once the Mikan work changes.
+                    var sameWork = previous.MikanId == input.MikanId;
+                    input.BgmId = sameWork ? input.BgmId ?? previous.BgmId : input.BgmId == previous.BgmId ? null : input.BgmId;
+                    input.TmdbId = sameWork ? input.TmdbId ?? previous.TmdbId : input.TmdbId == previous.TmdbId ? null : input.TmdbId;
+                }
                 if (s.Subscriptions.Any(x => x.Id != input.Id && x.Url == input.Url && x.NodeId == input.NodeId)) throw new ArgumentException("此节点已订阅该地址");
                 s.Subscriptions.RemoveAll(x => x.Id == input.Id); s.Subscriptions.Add(input);
             });

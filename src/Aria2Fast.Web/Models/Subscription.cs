@@ -8,6 +8,11 @@ public sealed class Subscription
     public string NodeId { get; set; } = "local";
     public string Directory { get; set; } = "";
     public string NamePath { get; set; } = "";
+    /// <summary>Mikan bangumiId; taken from Mikan RSS addresses when present.</summary>
+    public string? MikanId { get; set; }
+    /// <summary>Bangumi subject; filled in by the media library once matched through Mikan or by hand.</summary>
+    public int? BgmId { get; set; }
+    public int? TmdbId { get; set; }
     public int Season { get; set; }
     public string Filter { get; set; } = "";
     public string ExcludeFilter { get; set; } = "";

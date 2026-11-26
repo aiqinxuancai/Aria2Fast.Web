@@ -15,7 +15,9 @@ public sealed class HttpGateway(StateStore store)
         return client;
     }
 
-    public async Task<string> GetTextAsync(string url, CancellationToken ct = default)
+    public async Task<string> GetTextAsync(string url, CancellationToken ct = default) => Encoding.UTF8.GetString(await GetBytesAsync(url, 8 * 1024 * 1024, ct));
+
+    public async Task<byte[]> GetBytesAsync(string url, int limit, CancellationToken ct = default)
     {
         using var client = Create();
         using var response = await client.GetAsync(Validation.HttpUrl(url), HttpCompletionOption.ResponseHeadersRead, ct);
@@ -26,9 +28,9 @@ public sealed class HttpGateway(StateStore store)
         int count;
         while ((count = await stream.ReadAsync(bytes, ct)) > 0)
         {
-            if (buffer.Length + count > 8 * 1024 * 1024) throw new InvalidDataException("远端内容超过 8 MB 限制");
+            if (buffer.Length + count > limit) throw new InvalidDataException($"远端内容超过 {limit / 1024 / 1024} MB 限制");
             buffer.Write(bytes, 0, count);
         }
-        return Encoding.UTF8.GetString(buffer.ToArray());
+        return buffer.ToArray();
     }
 }

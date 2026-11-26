@@ -160,6 +160,7 @@ try
 }
 finally { Directory.Delete(temporary, true); }
 passed += AnimeSourcesTests.Run();
+passed += LibraryTests.Run();
 passed += await AiResearchTests.Run();
 passed += await LocalAriaStartupTests.Run();
 Console.WriteLine($"{passed} tests passed.");

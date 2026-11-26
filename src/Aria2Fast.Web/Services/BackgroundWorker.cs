@@ -2,7 +2,7 @@
 
 namespace Aria2Fast.Web.Services;
 
-public sealed class BackgroundWorker(StateStore store, SubscriptionService subscriptions, AriaRpc rpc, HttpGateway http, ILogger<BackgroundWorker> logger) : BackgroundService
+public sealed class BackgroundWorker(StateStore store, SubscriptionService subscriptions, AriaRpc rpc, HttpGateway http, LibraryService library, ILogger<BackgroundWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -47,6 +47,8 @@ public sealed class BackgroundWorker(StateStore store, SubscriptionService subsc
                         });
                         continue;
                     }
+                    // Only the local node's files are readable by this server.
+                    if (download.NodeId == "local") library.Completed(download.Gid, task);
                     var name = task["bittorrent"]?["info"]?["name"]?.ToString() ?? task["files"]?[0]?["path"]?.ToString() ?? download.Name;
                     var sent = true;
                     if (snapshot.Settings.PushEnabled && !download.PushDeerNotified)

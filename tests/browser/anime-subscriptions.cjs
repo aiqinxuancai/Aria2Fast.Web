@@ -18,12 +18,13 @@ module.exports=async function(page){
   assert.match(await firstGroup.locator('.anime-subscribed').getAttribute('title'),/已添加至：.+（已暂停）/);
   assert.equal(await page.locator('.anime-subscribed').count(),1,'Other groups must remain unmarked');
   await page.locator('#modal-close').click();
-  const id=await page.evaluate(async url=>{
+  const {id,mikanId}=await page.evaluate(async url=>{
     const {api}=await import('/js/core.js');
     const saved=(await api('/subscriptions')).find(s=>s.url===url);
     await api('/subscriptions','POST',{...saved,enabled:true});
-    return saved.id;
+    return {id:saved.id,mikanId:saved.mikanId};
   },url);
+  assert.equal(mikanId,'123','Subscribing from the anime page keeps the Mikan ID for the media library');
   await card.click();
   await firstGroup.locator('.anime-subscribed').waitFor();
   assert.equal(await firstGroup.locator('.anime-subscribed').textContent(),'✓ 已订阅');

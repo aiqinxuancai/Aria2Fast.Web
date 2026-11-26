@@ -38,7 +38,15 @@ public static class Validation
         if (s.IsExcludeFilterRegex ?? s.IsFilterRegex)
             _ = new Regex(s.ExcludeFilter, RegexOptions.None, TimeSpan.FromMilliseconds(200));
         if (!string.IsNullOrWhiteSpace(s.NamePath)) s.NamePath = Segment(s.NamePath);
+        // The RSS address is authoritative, so editing it never leaves a stale ID behind.
+        s.MikanId = MikanId(s.Url) ?? (string.IsNullOrWhiteSpace(s.MikanId) ? null : s.MikanId.Trim());
+        if (s.MikanId != null && !Regex.IsMatch(s.MikanId, @"^\d{1,12}$")) throw new ArgumentException("Mikan 番剧 ID 无效");
+        if (s.BgmId is <= 0 || s.TmdbId is <= 0) throw new ArgumentException("Bangumi / TMDB 条目 ID 无效");
     }
+
+    /// <summary>bangumiId from a Mikan RSS address such as /RSS/Bangumi?bangumiId=3310&amp;subgroupid=583.</summary>
+    public static string? MikanId(string url) =>
+        Regex.Match(url, @"[?&]bangumiId=(\d{1,12})(?=&|#|$)", RegexOptions.IgnoreCase) is { Success: true } match ? match.Groups[1].Value : null;
 
     public static void AnimeSources(AnimeSourcesSettings sources)
     {

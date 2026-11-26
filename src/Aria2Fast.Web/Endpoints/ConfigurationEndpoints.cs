@@ -16,9 +16,12 @@ public static class ConfigurationEndpoints
         });
         api.MapPut("/desktop/autostart", (DesktopStartup input, DesktopService desktop) => { desktop.SetAutoStart(input.Enabled); return desktop.Status(); });
         api.MapPost("/desktop/shortcut", async (DesktopService desktop, CancellationToken ct) => new { path = await desktop.CreateShortcut(ct) });
-        api.MapPut("/settings", async (WebSettings input, StateStore store, LocalAriaService local, AriaRpc rpc, CancellationToken ct) =>
+        api.MapPut("/settings", async (WebSettings input, StateStore store, LocalAriaService local, AriaRpc rpc, LibraryService library, CancellationToken ct) =>
         {
             if (input.SubscriptionIntervalMinutes is < 1 or > 1440 || input.LocalRpcPort is < 1024 or > 65535) throw new ArgumentException("轮询间隔或 RPC 端口无效");
+            if (input.Library.ScanIntervalMinutes is < 5 or > 1440) throw new ArgumentException("媒体库扫描间隔应在 5 至 1440 分钟之间");
+            input.Library.BangumiApiUrl = string.IsNullOrWhiteSpace(input.Library.BangumiApiUrl) ? LibrarySettings.DefaultBangumiApiUrl : input.Library.BangumiApiUrl.Trim();
+            Validation.HttpUrl(input.Library.BangumiApiUrl);
             input.MikanFallbackUrl = input.MikanFallbackUrl?.Trim() ?? "";
             if (input.MikanFallbackUrl.Length > 0) Validation.HttpUrl(input.MikanFallbackUrl);
             Validation.HttpUrl(input.MikanBaseUrl); Validation.HttpUrl(input.PushEndpoint);
@@ -54,6 +57,8 @@ public static class ConfigurationEndpoints
                 foreach (var pair in tuning) input.LocalOptions[pair.Key] = pair.Value;
                 s.Settings = input;
             });
+            // The download directory or library switches may have changed.
+            if (input.Library.Enabled) library.RequestScan();
             return Results.Ok(new { ok = true });
         });
         api.MapGet("/local/diagnostics", (LocalDiagnostics diagnostics, CancellationToken ct) => diagnostics.Inspect(ct));

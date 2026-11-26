@@ -106,7 +106,7 @@ async function detail(id){
   translateButton.onclick=translate;
   translateButton.disabled=!(d.originalSummary||d.summary||d.tmdb?.overview);
   if(state.config.settings.translateSummary&&d.originalSummary&&d.summary===d.originalSummary)translate();
-  $('#modal-body').querySelectorAll('[data-sub]').forEach(b=>b.onclick=()=>editSubscription({name:d.name+' · '+d.groups[b.dataset.sub].name,url:d.groups[b.dataset.sub].url,namePath:d.name}));
+  $('#modal-body').querySelectorAll('[data-sub]').forEach(b=>b.onclick=()=>editSubscription({name:d.name+' · '+d.groups[b.dataset.sub].name,url:d.groups[b.dataset.sub].url,namePath:d.name,mikanId:d.id}));
   $('#modal-body').querySelectorAll('[data-feed]').forEach(b=>b.onclick=()=>run(async()=>{const result=await api('/subscriptions/preview','POST',{url:d.groups[b.dataset.feed].url});$('#anime-feed').innerHTML='<h3 style="margin-top:24px">最新发布</h3><div class="file-list">'+result.items.map((x,i)=>'<div class="file-row"><span>'+esc(x.item.title)+'<br><small class="muted">'+bytes(x.item.size)+'</small></span><button data-download="'+i+'">下载</button></div>').join('')+'</div>';$('#anime-feed').querySelectorAll('[data-download]').forEach(btn=>btn.onclick=()=>addTask(result.items[btn.dataset.download].item.url));},b));
 }
 

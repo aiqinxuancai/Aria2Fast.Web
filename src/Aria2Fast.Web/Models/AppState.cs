@@ -52,6 +52,8 @@ public sealed class WebSettings
     public string BarkEndpoint { get; set; } = "https://api.day.app/";
     public string BarkKey { get; set; } = "";
     public OssSettings Oss { get; set; } = new();
+    public LibrarySettings Library { get => library; set => library = value ?? new(); }
+    private LibrarySettings library = new();
     public Dictionary<string, string> LocalOptions { get; set; } = [];
 }
 
@@ -64,6 +66,16 @@ public sealed class OssSettings
     public string AccessKeyId { get; set; } = "";
     public string AccessKeySecret { get; set; } = "";
     public string ObjectKey { get; set; } = "aria2fast-web/subscriptions.json";
+}
+
+public sealed class LibrarySettings
+{
+    public const string DefaultBangumiApiUrl = "https://api.bgm.tv";
+    public bool Enabled { get; set; } = true;
+    public bool FetchMetadata { get; set; } = true;
+    public int ScanIntervalMinutes { get; set; } = 60;
+    /// <summary>Bangumi API root, or a mirror / reverse proxy of it.</summary>
+    public string BangumiApiUrl { get; set; } = DefaultBangumiApiUrl;
 }
 
 public sealed class AnimeSourcesSettings

@@ -27,6 +27,7 @@ PUSH_CODES = {'pushdeer': 0, 'bark': 200}
 SOURCE_REQUESTS = []
 TORZNAB_KEY = 'fixture-key'
 INFO_HASH = '0123456789abcdef0123456789abcdef01234567'
+BGM_AGENTS = []
 
 
 def bencode(value):
@@ -59,6 +60,20 @@ def source_feed(base, path):
     return ''
 
 
+def bangumi(base, path):
+    """Bangumi API v0 subjects and episodes. 9001 is linked from the Mikan page; 9002 is found by search and has an SVG poster."""
+    url = parse.urlsplit(path)
+    if url.path == '/bgm/v0/subjects/9001':
+        return {'id': 9001, 'name': 'テスト番組', 'name_cn': '测试番剧中文名', 'summary': '测试简介', 'date': '2026-10-01', 'platform': 'TV', 'images': {'medium': base + '/bgm/poster.png'}, 'rating': {'score': 7.5}, 'total_episodes': 12}
+    if url.path == '/bgm/v0/subjects/9002':
+        return {'id': 9002, 'name': 'Search Show', 'name_cn': '', 'images': {'medium': base + '/bgm/poster.svg'}, 'rating': {'score': 0}}
+    if url.path == '/bgm/v0/episodes':
+        subject = parse.parse_qs(url.query).get('subject_id', [''])[0]
+        data = [{'ep': i, 'sort': i, 'name': f'Episode {i}', 'name_cn': ['第一集', '第二集'][i - 1], 'airdate': f'2026-10-0{i}', 'type': 0} for i in (1, 2)] if subject == '9001' else []
+        return {'data': data, 'total': len(data)}
+    return None
+
+
 class Fixtures(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -85,7 +100,8 @@ class Fixtures(BaseHTTPRequestHandler):
         if self.path.startswith('/Home/Bangumi/123'):
             date = (datetime.now(timezone(timedelta(hours=8))) - timedelta(hours=1)).strftime('%Y/%m/%d %H:%M')
             groups = ''.join(f'<div class="subgroup-text"><a>Fixture Group</a><a class="mikan-rss" href="/RSS/123?group={i}">RSS</a></div><div class="episode-table"><table><tbody><tr><td></td><td><a class="magnet-link-wrap">Fixture - {i:02d}</a></td><td>1GB</td><td>{date}</td></tr></tbody></table></div>' for i in range(1, 8))
-            return self.reply(('<html><h1>Fixture Anime</h1><p class="header2-desc">A sample description.</p>' + groups + '</html>').encode(), 'text/html')
+            bgm = '<p class="bangumi-info">Bangumi番组计划链接：<br /><a class="w-other-c" target="_blank" href="https://bgm.tv/subject/9001">https://bgm.tv/subject/9001</a></p>'
+            return self.reply(('<html><h1>Fixture Anime</h1><p class="header2-desc">A sample description.</p>' + bgm + groups + '</html>').encode(), 'text/html')
         if self.path.startswith('/Home/Bangumi/456'):
             self.send_response(302)
             self.send_header('Location', '/mikan')
@@ -120,6 +136,14 @@ class Fixtures(BaseHTTPRequestHandler):
             if items is None:
                 return self.reply(b'<error code="100" description="Invalid API Key"/>', 'application/xml')
             return self.reply(f'<rss xmlns:nyaa="https://nyaa.si/xmlns/nyaa" xmlns:torznab="http://torznab.com/schemas/2015/feed"><channel><title>Source</title>{items}</channel></rss>'.encode(), 'application/xml')
+        if self.path == '/bgm/poster.png':
+            return self.reply(b'\x89PNG\r\n\x1a\n' + bytes(32), 'image/png')
+        if self.path == '/bgm/poster.svg':
+            return self.reply(b'<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>', 'image/svg+xml')
+        if self.path.startswith('/bgm/v0/'):
+            BGM_AGENTS.append(self.headers.get('User-Agent', ''))
+            data = bangumi(base, self.path)
+            return self.reply(data) if data is not None else self.send_error(404)
         if self.path.startswith('/poster.svg'):
             return self.reply(b'<svg xmlns="http://www.w3.org/2000/svg" width="320" height="480"><rect width="320" height="480" fill="#41645b"/><circle cx="210" cy="160" r="90" fill="#8bbdaf"/><text x="25" y="380" fill="white" font-size="30">Test fixture</text></svg>', 'image/svg+xml')
         self.send_error(404)
@@ -148,6 +172,11 @@ class Fixtures(BaseHTTPRequestHandler):
         if self.path == '/bark/push':
             NOTIFICATIONS.append(('bark', body))
             return self.reply({'code': PUSH_CODES['bark']})
+        if self.path.startswith('/bgm/v0/search/subjects'):
+            BGM_AGENTS.append(self.headers.get('User-Agent', ''))
+            found = 'Search Show' in body.get('keyword', '') and body.get('filter', {}).get('type') == [2]
+            data = [{'id': 9002, 'name': 'Search Show', 'name_cn': '', 'date': '2026-10-01', 'infobox': []}] if found else [{'id': 1, 'name': 'Unrelated', 'name_cn': '无关作品', 'infobox': []}]
+            return self.reply({'data': data, 'total': len(data)})
         if self.path.startswith('/invalid/'):
             self.send_error(401, 'Invalid test credentials')
             return
@@ -270,7 +299,7 @@ def start_app(real=False):
     jar = http.cookiejar.CookieJar()
     client = request.build_opener(request.HTTPCookieProcessor(jar))
 
-    def api(path, method='GET', body=None, expected=200, csrf=True):
+    def api(path, method='GET', body=None, expected=200, csrf=True, raw=False):
         headers = {'Content-Type': 'application/json'}
         if csrf:
             headers['X-Aria2Fast'] = '1'
@@ -282,6 +311,8 @@ def start_app(real=False):
             response = ex
         content = response.read()
         assert response.status == expected, (path, response.status, content.decode(errors='replace'), app_log())
+        if raw:
+            return content, response.headers
         return json.loads(content) if content else None
 
     assert request.urlopen(base).status == 200
@@ -371,6 +402,75 @@ def check_anime_sources(api, fixture, node):
     api('/settings', 'PUT', {**config, 'proxyTorrentDownloads': True, 'mikanBaseUrl': mikan[0], 'mikanFallbackUrl': mikan[1]})
     api('/subscriptions/' + sub['id'], 'DELETE')
     print('PASS anime sources: multi-source search, isolation, Torznab caps/key injection/302 magnet, torrent prefetch')
+
+
+def check_library(api, fixture, data):
+    """Media library: subscription folder → Mikan page → Bangumi subject, search fallback, poster cache and manual match."""
+    downloads = Path(data) / 'downloads'
+
+    def touch(path):
+        target = downloads / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b'video')
+
+    config = api('/state')['settings']
+    library = config['library']
+    assert library['enabled'] and library['fetchMetadata'] and library['bangumiApiUrl'] == 'https://api.bgm.tv', library
+    api('/settings', 'PUT', {**config, 'library': {**library, 'scanIntervalMinutes': 1}}, expected=400)
+    api('/settings', 'PUT', {**config, 'library': {**library, 'bangumiApiUrl': 'file:///etc/passwd'}}, expected=400)
+    api('/settings', 'PUT', {**config, 'library': {**library, 'bangumiApiUrl': fixture + '/bgm'}})
+    sub = api('/subscriptions', 'POST', {'name': '测试番剧 · Fixture Group', 'url': fixture + '/RSS/123?group=library', 'nodeId': 'local', 'namePath': '测试番剧', 'season': 1, 'mikanId': '123', 'enabled': False})
+    assert sub['mikanId'] == '123' and sub['bgmId'] is None, sub
+    for episode in (1, 2, 3):
+        touch(f'测试番剧/Season 1/[Fixture] 测试番剧 - {episode:02d} [1080p].mkv')
+    touch('测试番剧/Season 1/[Fixture] 测试番剧 - 03 [1080p].mkv.aria2')  # still downloading
+    touch('测试番剧/Season 1/[Fixture] 测试番剧 - 01 [1080p].ass')
+    touch('[ANi] Search Show - 05 [1080P].mp4')
+    status = api('/library/scan', 'POST')
+    assert status['series'] == 2 and status['episodes'] == 3 and status['lastScan'], status
+    for _ in range(150):
+        overview = api('/library')
+        if all(s['status'] != 'Pending' for s in overview['series']):
+            break
+        time.sleep(.2)
+    series = {s['folderTitle']: s for s in overview['series']}
+    work = series['测试番剧']
+    assert work['status'] == 'Matched' and work['matchedBy'] == 'Mikan' and work['bgmId'] == 9001 and work['subscriptionId'] == sub['id'], work
+    assert work['title'] == '测试番剧中文名' and work['score'] == 7.5 and work['episodeCount'] == 2 and work['latestEpisode'] == 2, work
+    poster, headers = api(work['poster'].removeprefix('/api'), raw=True)
+    assert poster.startswith(b'\x89PNG') and headers['Content-Type'] == 'image/png' and 'max-age' in headers['Cache-Control'], headers
+    detail = api('/library/' + work['id'])
+    assert [e['title'] for e in detail['episodes']] == ['第一集', '第二集'] and detail['metadata']['url'] == 'https://bgm.tv/subject/9001', detail
+    assert next(s for s in api('/subscriptions') if s['id'] == sub['id'])['bgmId'] == 9001  # Mikan match kept on the subscription
+    loose = series['Search Show']
+    assert loose['status'] == 'Matched' and loose['matchedBy'] == 'Search' and loose['bgmId'] == 9002, loose
+    assert loose['poster'] == '', loose  # SVG artwork is refused
+    api('/library/' + loose['id'] + '/poster', expected=404)
+    assert BGM_AGENTS and all('Aria2Fast.Web' in agent for agent in BGM_AGENTS), BGM_AGENTS
+
+    manual = api('/library/' + loose['id'] + '/match', 'POST', {'bgmId': 9001})
+    assert manual['series']['manualMatch'] and manual['series']['bgmId'] == 9001 and manual['series']['status'] == 'Matched', manual
+    api('/library/' + loose['id'] + '/match', 'POST', {'bgmId': -1}, expected=400)
+    missing = api('/library/' + loose['id'] + '/match', 'POST', {'bgmId': 404404})
+    assert missing['series']['status'] == 'Failed' and missing['series']['error'], missing
+    api('/library/' + loose['id'] + '/match', 'POST', {'bgmId': 9001})
+    api('/library/missing', expected=404)
+    api('/library/0123456789abcdef/poster', expected=404)
+    api('/library/..%2Fstate/poster', expected=404)
+    api('/library/scan', 'POST')
+    assert next(s for s in api('/library')['series'] if s['id'] == loose['id'])['manualMatch']
+
+    # A subscription form opened before the match must not erase it; another Mikan work clears it.
+    current = next(s for s in api('/subscriptions') if s['id'] == sub['id'])
+    assert api('/subscriptions', 'POST', {**current, 'bgmId': None})['bgmId'] == 9001
+    assert api('/subscriptions', 'POST', {**current, 'mikanId': '456'})['bgmId'] is None
+
+    config = api('/state')['settings']
+    api('/settings', 'PUT', {**config, 'library': {**config['library'], 'enabled': False}})
+    api('/library/scan', 'POST', expected=400)
+    api('/settings', 'PUT', {**config, 'library': {**config['library'], 'enabled': True}})
+    api('/subscriptions/' + sub['id'], 'DELETE')
+    print('PASS media library: subscription folders, Mikan -> Bangumi, search fallback, posters, manual match, settings validation')
 
 
 def main():
@@ -510,6 +610,7 @@ def main():
             assert 'status-paused' not in TASKS and 'status-active' in TASKS
         if not args.real_aria:
             check_anime_sources(api, fixture, node)
+            check_library(api, fixture, data)
         backup = api('/backup')
         assert api('/backup/import', 'POST', backup)['imported'] == 0
         api('/not-a-route', expected=404)

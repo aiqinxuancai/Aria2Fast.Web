@@ -141,6 +141,7 @@ docker compose up -d
 - [部署与配置](docs/DEPLOYMENT.md)：Docker 进阶、环境变量、下载调优、网络设置、资源搜索源
 - [桌面集成](docs/DESKTOP.md)：开机自启、桌面快捷方式、端口占用处理
 - [番剧调查与评析](docs/AI-RESEARCH.md)：AI 评析的工作方式与搜索服务配置
+- [媒体库](docs/MEDIA-LIBRARY.md)：整理本地视频，按作品获取海报、简介与分集标题（海报墙与播放器开发中）
 - [功能说明](docs/FEATURES.md)：与桌面版的功能对照
 - [开发与发布](docs/DEVELOPMENT.md)：源码运行、测试、构建与发布流程
 
