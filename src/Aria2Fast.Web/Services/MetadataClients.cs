@@ -51,15 +51,26 @@ public sealed class BangumiClient(StateStore store, HttpGateway http)
         var poster = new[] { "common", "medium", "large" }.Select(size => JsonText.String(images?[size])).FirstOrDefault(url => url.Length > 0) ?? "";
         var score = JsonText.Number(subject["rating"]?["score"]);
         var total = JsonText.Number(subject["total_episodes"]) ?? JsonText.Number(subject["eps"]);
+        // The most used tags without years or numbers ("2023年10月", "TV") read as genres.
+        var genres = (subject["tags"] as JsonArray ?? []).OfType<JsonObject>().OrderByDescending(tag => JsonText.Number(tag["count"]) ?? 0)
+            .Select(tag => JsonText.String(tag["name"])).Where(name => name.Length is > 0 and <= 10 && !name.Any(char.IsDigit) && name is not ("TV" or "日本" or "日本动画" or "WEB"))
+            .Take(6).ToList();
+        var studio = new[] { "动画制作", "制作", "製作" }.Select(key => Infobox(subject["infobox"] as JsonArray, key)).FirstOrDefault(value => value.Length > 0) ?? "";
         return new("bangumi", (int)(JsonText.Number(subject["id"]) ?? throw new InvalidDataException("Bangumi 条目缺少 ID")),
             JsonText.String(subject["name"]), JsonText.String(subject["name_cn"]), JsonText.String(subject["summary"]), JsonText.String(subject["date"]),
-            score > 0 ? score : null, total > 0 ? (int)total : null, JsonText.String(subject["platform"])) { PosterUrl = poster };
+            score > 0 ? score : null, total > 0 ? (int)total : null, JsonText.String(subject["platform"])) { PosterUrl = poster, Genres = genres, Studio = studio };
+    }
+
+    private static string Infobox(JsonArray? infobox, string key)
+    {
+        var entry = (infobox ?? []).OfType<JsonObject>().FirstOrDefault(e => JsonText.String(e["key"]) == key);
+        return entry?["value"] is JsonArray values ? values.Select(v => JsonText.String(v?["v"])).FirstOrDefault(v => v.Length > 0) ?? "" : JsonText.String(entry?["value"]);
     }
 
     /// <summary>Main episodes (type 0) and specials (type 1); OP / ED / PV entries are left out.</summary>
     public static List<LibraryEpisodeMeta> ParseEpisodes(JsonArray data) => data.OfType<JsonObject>()
         .Select(x => new LibraryEpisodeMeta(JsonText.Number(x["ep"]) ?? JsonText.Number(x["sort"]) ?? 0, JsonText.Number(x["sort"]) ?? 0,
-            JsonText.String(x["name"]), JsonText.String(x["name_cn"]), JsonText.String(x["airdate"]), (int)(JsonText.Number(x["type"]) ?? 0)))
+            JsonText.String(x["name"]), JsonText.String(x["name_cn"]), JsonText.String(x["airdate"]), (int)(JsonText.Number(x["type"]) ?? 0), JsonText.String(x["desc"])))
         .Where(x => x.Type is 0 or 1).ToList();
 
     public static List<BangumiCandidate> ParseSearch(JsonNode? json) => (json?["data"] as JsonArray ?? []).OfType<JsonObject>()
@@ -128,6 +139,10 @@ public sealed class TmdbClient(StateStore store, HttpGateway http)
 {
     private const string Root = "https://api.themoviedb.org/3";
     private const string Images = "https://image.tmdb.org/t/p/w342";
+    private const string Backdrops = "https://image.tmdb.org/t/p/w1280";
+
+    private static List<string> Names(JsonNode? list) => (list as JsonArray ?? []).OfType<JsonObject>().Select(x => JsonText.String(x["name"])).Where(n => n.Length > 0).ToList();
+    private static string Backdrop(JsonNode item) => JsonText.String(item["backdrop_path"]) is { Length: > 0 } path ? Backdrops + path : "";
     private string Key => store.Read().Settings.TmdbApiKey;
     public bool Configured => !string.IsNullOrWhiteSpace(Key);
 
@@ -192,7 +207,11 @@ public sealed class TmdbClient(StateStore store, HttpGateway http)
         var poster = JsonText.String(tv["poster_path"]);
         return new("tmdb", (int)(JsonText.Number(tv["id"]) ?? throw new InvalidDataException("TMDB 剧集缺少 ID")),
             JsonText.String(tv["original_name"]), JsonText.String(tv["name"]), JsonText.String(tv["overview"]), JsonText.String(tv["first_air_date"]),
-            score > 0 ? score : null, episodes > 0 ? (int)episodes : null, "TV") { PosterUrl = poster.Length > 0 ? Images + poster : "" };
+            score > 0 ? score : null, episodes > 0 ? (int)episodes : null, "TV")
+        {
+            PosterUrl = poster.Length > 0 ? Images + poster : "", FanartUrl = Backdrop(tv), Genres = Names(tv["genres"]),
+            Studio = Names(tv["production_companies"]).FirstOrDefault() ?? Names(tv["networks"]).FirstOrDefault() ?? ""
+        };
     }
 
     /// <summary>The season's episode titles, episode count, air date and poster (when it has its own) replace the show's.</summary>
@@ -200,7 +219,7 @@ public sealed class TmdbClient(StateStore store, HttpGateway http)
     {
         var episodes = (season["episodes"] as JsonArray ?? []).OfType<JsonObject>()
             .Where(e => JsonText.Number(e["episode_number"]) is > 0)
-            .Select(e => new LibraryEpisodeMeta(JsonText.Number(e["episode_number"])!.Value, JsonText.Number(e["episode_number"])!.Value, JsonText.String(e["name"]), JsonText.String(e["name"]), JsonText.String(e["air_date"])))
+            .Select(e => new LibraryEpisodeMeta(JsonText.Number(e["episode_number"])!.Value, JsonText.Number(e["episode_number"])!.Value, JsonText.String(e["name"]), JsonText.String(e["name"]), JsonText.String(e["air_date"]), 0, JsonText.String(e["overview"])))
             .ToList();
         var poster = JsonText.String(season["poster_path"]);
         var overview = JsonText.String(season["overview"]);
@@ -219,7 +238,10 @@ public sealed class TmdbClient(StateStore store, HttpGateway http)
         var poster = JsonText.String(movie["poster_path"]);
         return new("tmdb-movie", (int)(JsonText.Number(movie["id"]) ?? throw new InvalidDataException("TMDB 电影缺少 ID")),
             JsonText.String(movie["original_title"]), JsonText.String(movie["title"]), JsonText.String(movie["overview"]), JsonText.String(movie["release_date"]),
-            score > 0 ? score : null, null, "电影") { PosterUrl = poster.Length > 0 ? Images + poster : "" };
+            score > 0 ? score : null, null, "电影")
+        {
+            PosterUrl = poster.Length > 0 ? Images + poster : "", FanartUrl = Backdrop(movie), Genres = Names(movie["genres"]), Studio = Names(movie["production_companies"]).FirstOrDefault() ?? ""
+        };
     }
 }
 

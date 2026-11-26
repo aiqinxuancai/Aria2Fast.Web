@@ -43,6 +43,7 @@ builder.Services.AddSingleton<MediaLinks>();
 builder.Services.AddSingleton<PlaybackService>();
 builder.Services.AddSingleton<FfmpegService>();
 builder.Services.AddSingleton<MediaAnalyzer>();
+builder.Services.AddSingleton<NfoWriter>();
 builder.Services.AddSingleton<HlsService>();
 builder.Services.AddHostedService(p => p.GetRequiredService<HlsService>());
 builder.Services.AddSingleton<BangumiClient>();

@@ -37,41 +37,39 @@ public sealed class AiService(StateStore store, HttpGateway http)
         return translated;
     }
 
-    public async Task<string> Send(string prompt, string instruction, CancellationToken ct = default, string? profileId = null)
+    public async Task<string> Send(string prompt, string instruction, CancellationToken ct = default, string? profileId = null, IReadOnlyList<AiImage>? images = null)
     {
-        var settings = store.Read().Settings;
-        var profile = settings.AiProfiles.FirstOrDefault(x => x.Id == (profileId ?? settings.SelectedAiId)) ?? settings.AiProfiles.FirstOrDefault();
-        return await SendProfile(profile, prompt, instruction, ct);
+        var profile = Profile(profileId);
+        return await SendProfile(profile, prompt, instruction, ct, images);
     }
 
-    public async Task<string> SendProfile(AiProfile? profile, string prompt, string instruction, CancellationToken ct = default)
+    /// <summary>The selected AI profile (or the first one).</summary>
+    public AiProfile? Profile(string? profileId = null)
+    {
+        var settings = store.Read().Settings;
+        return settings.AiProfiles.FirstOrDefault(x => x.Id == (profileId ?? settings.SelectedAiId)) ?? settings.AiProfiles.FirstOrDefault();
+    }
+
+    public async Task<string> SendProfile(AiProfile? profile, string prompt, string instruction, CancellationToken ct = default, IReadOnlyList<AiImage>? images = null)
     {
         if (profile is null || string.IsNullOrWhiteSpace(profile.ApiKey) || string.IsNullOrWhiteSpace(profile.ModelName))
             throw new ArgumentException("请先在设置中配置 AI 服务、模型和 API Key");
         var url = AiProtocol.BuildRequestUrl(profile.Protocol, profile.BaseUrl, profile.ModelName);
         using var request = new HttpRequestMessage(HttpMethod.Post, Validation.HttpUrl(url));
-        object body;
         switch (profile.Protocol)
         {
             case AiProtocolType.Claude:
                 request.Headers.Add("x-api-key", profile.ApiKey);
                 request.Headers.Add("anthropic-version", "2023-06-01");
-                body = new { model = profile.ModelName, max_tokens = 4096, system = instruction, messages = new[] { new { role = "user", content = prompt } } };
                 break;
             case AiProtocolType.Gemini:
                 request.Headers.Add("x-goog-api-key", profile.ApiKey);
-                body = new { system_instruction = new { parts = new[] { new { text = instruction } } }, contents = new[] { new { role = "user", parts = new[] { new { text = prompt } } } } };
-                break;
-            case AiProtocolType.OpenAIResponses:
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", profile.ApiKey);
-                body = new { model = profile.ModelName, instructions = instruction, input = prompt, store = false };
                 break;
             default:
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", profile.ApiKey);
-                body = new { model = profile.ModelName, messages = new[] { new { role = "system", content = instruction }, new { role = "user", content = prompt } } };
                 break;
         }
-        request.Content = JsonContent.Create(body);
+        request.Content = JsonContent.Create(Body(profile.Protocol, profile.ModelName, prompt, instruction, images ?? []));
         using var client = http.Create(timeoutSeconds: 180);
         using var response = await client.SendAsync(request, ct);
         if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"AI 服务返回 HTTP {(int)response.StatusCode}，请检查接口、模型和密钥");
@@ -145,6 +143,58 @@ public sealed class AiService(StateStore store, HttpGateway http)
         return result.Where(x => list.Contains(x.Old) && x.New == Validation.Segment(x.New)).ToList();
     }
 
+    /// <summary>
+    /// Request body per protocol. Images (only sent to models marked as supporting them) go beside the text in each protocol's own
+    /// form: image_url data URLs (Chat Completions), input_image (Responses), base64 image blocks (Claude), inline_data (Gemini).
+    /// </summary>
+    public static JsonObject Body(AiProtocolType protocol, string model, string prompt, string instruction, IReadOnlyList<AiImage> images)
+    {
+        string Base64(AiImage image) => Convert.ToBase64String(image.Data);
+        string DataUrl(AiImage image) => "data:" + image.MediaType + ";base64," + Base64(image);
+        JsonArray Parts(Func<JsonNode> text, Func<AiImage, JsonNode> image) => new([text(), .. images.Select(image)]);
+        return protocol switch
+        {
+            AiProtocolType.Claude => new JsonObject
+            {
+                ["model"] = model, ["max_tokens"] = 4096, ["system"] = instruction,
+                ["messages"] = new JsonArray(new JsonObject
+                {
+                    ["role"] = "user",
+                    ["content"] = images.Count == 0 ? prompt : Parts(() => new JsonObject { ["type"] = "text", ["text"] = prompt },
+                        i => new JsonObject { ["type"] = "image", ["source"] = new JsonObject { ["type"] = "base64", ["media_type"] = i.MediaType, ["data"] = Base64(i) } })
+                })
+            },
+            AiProtocolType.Gemini => new JsonObject
+            {
+                ["system_instruction"] = new JsonObject { ["parts"] = new JsonArray(new JsonObject { ["text"] = instruction }) },
+                ["contents"] = new JsonArray(new JsonObject
+                {
+                    ["role"] = "user",
+                    ["parts"] = Parts(() => new JsonObject { ["text"] = prompt }, i => new JsonObject { ["inline_data"] = new JsonObject { ["mime_type"] = i.MediaType, ["data"] = Base64(i) } })
+                })
+            },
+            AiProtocolType.OpenAIResponses => new JsonObject
+            {
+                ["model"] = model, ["instructions"] = instruction, ["store"] = false,
+                ["input"] = images.Count == 0 ? prompt : new JsonArray(new JsonObject
+                {
+                    ["role"] = "user",
+                    ["content"] = Parts(() => new JsonObject { ["type"] = "input_text", ["text"] = prompt }, i => new JsonObject { ["type"] = "input_image", ["image_url"] = DataUrl(i) })
+                })
+            },
+            _ => new JsonObject
+            {
+                ["model"] = model,
+                ["messages"] = new JsonArray(new JsonObject { ["role"] = "system", ["content"] = instruction }, new JsonObject
+                {
+                    ["role"] = "user",
+                    ["content"] = images.Count == 0 ? prompt : Parts(() => new JsonObject { ["type"] = "text", ["text"] = prompt },
+                        i => new JsonObject { ["type"] = "image_url", ["image_url"] = new JsonObject { ["url"] = DataUrl(i) } })
+                })
+            }
+        };
+    }
+
     public static string CleanJson(string text)
     {
         var start = text.IndexOfAny(['{', '[']);
@@ -152,3 +202,6 @@ public sealed class AiService(StateStore store, HttpGateway http)
         return start >= 0 && end >= start ? text[start..(end + 1)] : text;
     }
 }
+
+/// <summary>An image for a model that accepts pictures: JPEG, PNG, WebP or GIF bytes.</summary>
+public sealed record AiImage(string MediaType, byte[] Data);

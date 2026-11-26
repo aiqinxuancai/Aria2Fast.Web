@@ -117,7 +117,7 @@ function renderDetail(d){
   const s=d.series,m=d.metadata,r=d.resume;
   const movie=s.category==='Movie';
   const facts=[CATEGORY[s.category],!movie&&s.season?'第 '+s.season+' 季':'',m?.platform&&m.platform!=='电影'?m.platform:'',m?.airDate?(movie?'上映 ':'首播 ')+m.airDate:s.year?s.year+' 年':'',m?.score?'★ '+m.score.toFixed(1):'',
-    movie?(s.episodeCount>1?s.episodeCount+' 个文件':''):s.episodeCount?s.episodeCount+(m?.totalEpisodes?' / '+m.totalEpisodes:'')+' 集':'',!movie&&s.watchedCount?'已看 '+s.watchedCount+' 集':'',bytes(s.size)].filter(Boolean);
+    movie?(s.episodeCount>1?s.episodeCount+' 个文件':''):s.episodeCount?s.episodeCount+(m?.totalEpisodes?' / '+m.totalEpisodes:'')+' 集':'',!movie&&s.watchedCount?'已看 '+s.watchedCount+' 集':'',...(s.genres||[]).slice(0,4),s.studio,bytes(s.size)].filter(Boolean);
   const name=m?(SOURCES[m.source]||m.source)+(m.sourceId?' #'+m.sourceId:''):'';
   const source=m?'资料：'+(m.url?'<a href="'+esc(m.url)+'" target="_blank" rel="noopener noreferrer">'+esc(name)+'</a>':esc(name))+(s.matchedBy?' · 通过'+SOURCE[s.matchedBy]+'匹配':''):'';
   const ai=d.aiScrape;
@@ -129,7 +129,7 @@ function renderDetail(d){
   const more='<details class="sub-more popup"><summary>更多</summary><div class="sub-menu"><button type="button" data-all="true">全部标为已看</button><button type="button" data-all="false">全部标为未看</button><button type="button" id="series-playlist">下载播放列表（M3U）</button>'+(fixed?'<button type="button" id="series-reset">恢复自动识别集数</button>':'')+'</div></details>';
   const unnumbered=s.unnumbered&&!movie?'<div class="callout">有 '+s.unnumbered+' 个视频没能从文件名识别出集数。'+(d.aiAvailable?'<button type="button" class="compact" id="series-recognize">用 AI 识别集数</button>':'在设置中配置 AI 后可以自动识别，')+' 也可以点视频旁的「集数」手动修改。</div>':'';
   $('#content').innerHTML='<a class="back-link" href="#library">← 媒体库</a>'+
-    '<section class="panel library-hero"><div class="poster">'+(s.poster?'<img src="'+esc(s.poster)+'" alt="">':'<div class="poster-fallback"><strong>'+esc(s.title)+'</strong></div>')+'</div>'+
+    '<section class="panel library-hero">'+(s.fanart?'<div class="library-backdrop" style="background-image:url(\''+esc(s.fanart)+'\')" aria-hidden="true"></div>':'')+'<div class="poster">'+(s.poster?'<img src="'+esc(s.poster)+'" alt="">':'<div class="poster-fallback"><strong>'+esc(s.title)+'</strong></div>')+'</div>'+
     '<div class="library-info"><div class="eyebrow">'+esc(s.directory||'下载目录')+'</div><h1>'+esc(s.title)+'</h1>'+(s.originalTitle&&s.originalTitle!==s.title?'<p class="library-original">'+esc(s.originalTitle)+'</p>':'')+'<div class="library-facts">'+facts.map(f=>'<span>'+esc(f)+'</span>').join('')+'</div></div>'+
     '<div class="library-more">'+(m?.summary?'<p class="library-summary" id="library-summary">'+esc(m.summary)+'</p>':'')+(source?'<p class="library-source">'+source+'</p>':'')+aiNotice+status+'<div class="library-actions">'+play+(d.aiAvailable?'<button type="button" id="series-ai"'+(ai?.state==='running'?' disabled':'')+'>AI 刮削</button>':'')+'<button type="button" id="series-match">修正匹配</button><button type="button" id="series-refresh">重新获取资料</button>'+more+'</div></div></section>'+
     unnumbered+

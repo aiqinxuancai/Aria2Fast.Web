@@ -24,6 +24,12 @@ public static class LibraryEndpoints
             context.Response.Headers.CacheControl = "private, max-age=604800";
             return Results.File(path, LibraryService.ContentType(path), lastModified: File.GetLastWriteTimeUtc(path));
         });
+        api.MapGet("/library/{id}/fanart", (string id, HttpContext context, LibraryService library) =>
+        {
+            var path = library.FanartPath(id);
+            context.Response.Headers.CacheControl = "private, max-age=604800";
+            return Results.File(path, LibraryService.ContentType(path), lastModified: File.GetLastWriteTimeUtc(path));
+        });
         api.MapPost("/library/{id}/match", (string id, MatchRequest input, LibraryService library, CancellationToken ct) => library.Match(id, input.BgmId, input.TmdbId, ct));
         api.MapPost("/library/{id}/refresh", (string id, LibraryService library, CancellationToken ct) => library.Refresh(id, ct));
         api.MapPost("/library/{id}/watched", (string id, WatchedRequest input, PlaybackService playback, LibraryService library) =>

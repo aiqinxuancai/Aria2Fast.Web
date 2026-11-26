@@ -43,6 +43,8 @@ public sealed class LibrarySeries
     public LibraryMetadata? Metadata { get; set; }
     /// <summary>When the AI agent last tried this work automatically; it is not tried again automatically.</summary>
     public DateTimeOffset? AiTriedAt { get; set; }
+    /// <summary>When NFO files and artwork were last written beside the videos.</summary>
+    public DateTimeOffset? NfoWrittenAt { get; set; }
     public DateTimeOffset AddedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }
@@ -76,10 +78,15 @@ public sealed record LibraryMetadata(string Source, int SourceId, string Name, s
     public DateTimeOffset UpdatedAt { get; init; }
     /// <summary>For metadata the AI agent assembled ("ai"): the page it relied on.</summary>
     public string Reference { get; init; } = "";
+    public List<string> Genres { get; init; } = [];
+    public string Studio { get; init; } = "";
+    /// <summary>Wide background image (TMDB backdrop, or found by the AI), cached like the poster.</summary>
+    public string FanartUrl { get; init; } = "";
+    public string FanartFile { get; init; } = "";
 }
 
 /// <summary>Number is the episode within the subject (Bangumi "ep"); Sort may continue across seasons. Type 0 is a main episode, 1 a special.</summary>
-public sealed record LibraryEpisodeMeta(double Number, double Sort, string Name, string NameCn, string AirDate, int Type = 0);
+public sealed record LibraryEpisodeMeta(double Number, double Sort, string Name, string NameCn, string AirDate, int Type = 0, string Summary = "");
 
 public sealed record LibraryOrigin(string SubscriptionId, string Gid, DateTimeOffset Time);
 

@@ -191,7 +191,7 @@ static class PlaybackTests
                 var http = new HttpGateway(store);
                 var ai = new AiService(store, http);
                 using var memory = new MemoryCache(new MemoryCacheOptions());
-                var libraryService = new LibraryService(store, library, playback, http, new MikanService(store, http, memory, ai), new BangumiClient(store, http), new TmdbClient(store, http), ai, NullLogger<LibraryService>.Instance);
+                var libraryService = new LibraryService(store, library, playback, http, new MikanService(store, http, memory, ai), new BangumiClient(store, http), new TmdbClient(store, http), ai, new NfoWriter(store, library, NullLogger<NfoWriter>.Instance), NullLogger<LibraryService>.Instance);
                 var task = new JsonObject { ["files"] = new JsonArray(
                     new JsonObject { ["path"] = Path.Combine(root, "Work", "[G] Work - 03.webm"), ["selected"] = "true" },
                     new JsonObject { ["path"] = Path.Combine(root, "Work", "[G] Work - 01.mkv"), ["selected"] = "true" },

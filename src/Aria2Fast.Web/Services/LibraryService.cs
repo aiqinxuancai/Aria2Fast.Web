@@ -11,7 +11,7 @@ namespace Aria2Fast.Web.Services;
 /// Keeps the media library in step with the local download directory: scans on start, on a timer and after
 /// local downloads finish, then fetches metadata and posters for new works one at a time.
 /// </summary>
-public sealed class LibraryService(StateStore store, LibraryStore library, PlaybackStore playback, HttpGateway http, MikanService mikan, BangumiClient bangumi, TmdbClient tmdb, AiService ai, ILogger<LibraryService> logger) : BackgroundService
+public sealed class LibraryService(StateStore store, LibraryStore library, PlaybackStore playback, HttpGateway http, MikanService mikan, BangumiClient bangumi, TmdbClient tmdb, AiService ai, NfoWriter nfo, ILogger<LibraryService> logger) : BackgroundService
 {
     private const int PosterLimit = 10 * 1024 * 1024;
     private const int RecognizeLimit = 200;
@@ -39,7 +39,7 @@ public sealed class LibraryService(StateStore store, LibraryStore library, Playb
         {
             try
             {
-                if (store.Read().Settings.Library.Enabled) { await Scan(stoppingToken); await ScrapeDue(stoppingToken); await AutomaticAiScrape(stoppingToken); await UpgradePosters(stoppingToken); }
+                if (store.Read().Settings.Library.Enabled) { await Scan(stoppingToken); await ScrapeDue(stoppingToken); await AutomaticAiScrape(stoppingToken); await UpgradePosters(stoppingToken); await nfo.Sync(stoppingToken); }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception ex) { logger.LogWarning(ex, "媒体库更新失败"); }
@@ -274,6 +274,7 @@ public sealed class LibraryService(StateStore store, LibraryStore library, Playb
     private void Save(LibrarySeries series, LibraryMetadata? metadata, LibraryMatchSource? source, string? error)
     {
         var now = DateTimeOffset.UtcNow;
+        var written = false;
         library.Update(l =>
         {
             var current = l.Series.FirstOrDefault(s => s.Id == series.Id);
@@ -285,6 +286,7 @@ public sealed class LibraryService(StateStore store, LibraryStore library, Playb
                 current.Error = null; current.Attempts = 0; current.NextAttempt = null;
                 if (metadata.Source == "bangumi") current.BgmId = metadata.SourceId;
                 else if (metadata.Source.StartsWith("tmdb", StringComparison.Ordinal)) current.TmdbId = metadata.SourceId;
+                written = true;
                 return;
             }
             current.Attempts++;
@@ -292,6 +294,7 @@ public sealed class LibraryService(StateStore store, LibraryStore library, Playb
             current.Error = error ?? "Bangumi" + (tmdb.Configured ? " 和 TMDB" : "") + " 中未找到匹配的条目";
             current.NextAttempt = now + (current.Attempts switch { 1 => TimeSpan.FromHours(1), 2 => TimeSpan.FromHours(6), _ => TimeSpan.FromDays(1) });
         });
+        if (written) nfo.Request(series.Id);
         // Mikan links and manual choices are reliable; keep them on the subscription for later folders and views.
         if (metadata?.Source == "bangumi" && source is LibraryMatchSource.Mikan or LibraryMatchSource.Manual && series.SubscriptionId is { } subscriptionId
             && store.Read().Subscriptions.FirstOrDefault(s => s.Id == subscriptionId) is { } owner && owner.BgmId != metadata.SourceId)
@@ -386,14 +389,19 @@ public sealed class LibraryService(StateStore store, LibraryStore library, Playb
                     current.Error = null; current.Attempts = 0; current.NextAttempt = null;
                 });
                 await Scrape(id, deadline.Token, LibraryMatchSource.Ai);
+                await Supplement(id, answer, deadline.Token);
             }
             else
             {
                 // Neither database has the work: keep what the agent assembled from web pages.
-                var metadata = new LibraryMetadata("ai", 0, answer.OriginalTitle, answer.Title, answer.Summary, answer.Date, null, null, series.Category switch
+                var metadata = new LibraryMetadata("ai", 0, answer.OriginalTitle, answer.Title, answer.Summary, answer.Date, null, answer.TotalEpisodes, series.Category switch
                 {
                     LibraryCategory.Movie => "电影", LibraryCategory.Series => "电视剧", _ => ""
-                }) { PosterUrl = answer.Poster, Reference = answer.Reference, UpdatedAt = DateTimeOffset.UtcNow };
+                })
+                {
+                    PosterUrl = answer.Poster, FanartUrl = answer.Fanart, Reference = answer.Reference, Genres = answer.Genres, Studio = answer.Studio,
+                    Episodes = answer.Episodes.Select(e => new LibraryEpisodeMeta(e.Number, e.Number, e.Title, e.Title, e.AirDate, 0, e.Summary)).ToList(), UpdatedAt = DateTimeOffset.UtcNow
+                };
                 metadata = await Poster(id, metadata, deadline.Token);
                 Save(library.Read().Series.First(s => s.Id == id), metadata, LibraryMatchSource.Ai, null);
             }
@@ -409,20 +417,53 @@ public sealed class LibraryService(StateStore store, LibraryStore library, Playb
         finally { aiGate.Release(); }
     }
 
-    /// <summary>The agent with the tools for the work's category; TMDB tools exist only with a key.</summary>
+    /// <summary>
+    /// Fills what the database entry lacks with what the agent found: a summary or Chinese title, genres, studio, episode count and
+    /// titles, and artwork (fetched from public addresses only, as the agent found the addresses on the web).
+    /// </summary>
+    private async Task Supplement(string id, ScrapeAnswer answer, CancellationToken ct)
+    {
+        if (library.Read().Series.FirstOrDefault(s => s.Id == id) is not { Status: LibraryMetadataStatus.Matched, Metadata: { } meta } series) return;
+        var known = meta.Episodes.Select(e => e.Number).ToHashSet();
+        var added = new LibraryMetadata("", 0, "", "", "", "", null, null, "")
+        {
+            PosterUrl = meta.PosterFile.Length == 0 ? answer.Poster : "", FanartUrl = meta.FanartFile.Length == 0 ? answer.Fanart : ""
+        };
+        added = await Poster(id, added, ct, untrusted: true);
+        var updated = meta with
+        {
+            NameCn = meta.NameCn.Length > 0 ? meta.NameCn : answer.Title, Summary = meta.Summary.Length > 0 ? meta.Summary : answer.Summary,
+            AirDate = meta.AirDate.Length > 0 ? meta.AirDate : answer.Date, TotalEpisodes = meta.TotalEpisodes ?? answer.TotalEpisodes,
+            Genres = meta.Genres.Count > 0 ? meta.Genres : answer.Genres, Studio = meta.Studio.Length > 0 ? meta.Studio : answer.Studio,
+            Episodes = [.. meta.Episodes, .. answer.Episodes.Where(e => !known.Contains(e.Number)).Select(e => new LibraryEpisodeMeta(e.Number, e.Number, e.Title, e.Title, e.AirDate, 0, e.Summary))],
+            PosterUrl = added.PosterFile.Length > 0 ? added.PosterUrl : meta.PosterUrl, PosterFile = added.PosterFile.Length > 0 ? added.PosterFile : meta.PosterFile,
+            FanartUrl = added.FanartFile.Length > 0 ? added.FanartUrl : meta.FanartUrl, FanartFile = added.FanartFile.Length > 0 ? added.FanartFile : meta.FanartFile,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        if (updated == meta) return;
+        library.Update(l =>
+        {
+            if (l.Series.FirstOrDefault(s => s.Id == id) is { Metadata: { } current } target && current.Source == meta.Source && current.SourceId == meta.SourceId) target.Metadata = updated;
+        });
+        nfo.Request(id);
+    }
+
+    /// <summary>The agent with the tools for the work's category; TMDB tools exist only with a key, pictures only for models that see.</summary>
     private LibraryScrapeAgent Agent(LibrarySeries series)
     {
         var settings = store.Read().Settings;
-        var search = new ResearchSearchTools(settings, () => http.Create(timeoutSeconds: 25));
+        var search = new ResearchSearchTools(settings, () => http.Create(timeoutSeconds: 30));
+        var profile = ai.Profile();
         var movie = series.Category == LibraryCategory.Movie;
         var types = BangumiClient.Types(series.Category);
-        return new LibraryScrapeAgent((prompt, instruction, token) => ai.Send(prompt, instruction, token),
+        return new LibraryScrapeAgent((prompt, instruction, images, token) => ai.SendProfile(profile, prompt, instruction, token, images),
             search.Providers.Count > 0 ? search.Search : null, search.Providers,
-            (url, token) => WebFetchService.Shared.FetchAsync(url, 8000, token),
+            (url, token) => search.Read(url, 8000, token),
             (keyword, token) => bangumi.Search(keyword, token, 10, types),
             (subject, token) => bangumi.Subject(subject, token),
             tmdb.Configured ? (query, year, token) => tmdb.Candidates(query, movie, year, token) : null,
-            tmdb.Configured ? (tmdbId, token) => movie ? tmdb.Movie(tmdbId, token) : tmdb.Tv(tmdbId, token, series.Season) : null);
+            tmdb.Configured ? (tmdbId, token) => movie ? tmdb.Movie(tmdbId, token) : tmdb.Tv(tmdbId, token, series.Season) : null,
+            profile?.Vision == true ? (url, token) => WebFetchService.Shared.DownloadAsync(url, LibraryScrapeAgent.ImageLimit, token) : null);
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
@@ -577,7 +618,8 @@ public sealed class LibraryService(StateStore store, LibraryStore library, Playb
         {
             s.Id, title = DisplayTitle(s), originalTitle = meta?.Name ?? "", folderTitle = s.Title, s.Directory, s.Season, s.Category, s.FolderId, s.Year, s.SubscriptionId, s.MikanId, s.BgmId, s.TmdbId,
             s.ManualMatch, s.MatchedBy, s.Status, s.Error,
-            poster = PosterUrl(s), airDate = meta?.AirDate ?? "", score = meta?.Score, totalEpisodes = meta?.TotalEpisodes,
+            poster = PosterUrl(s), fanart = meta is { FanartFile.Length: > 0 } ? $"/api/library/{s.Id}/fanart?v={meta.UpdatedAt.ToUnixTimeSeconds()}" : "",
+            genres = meta?.Genres ?? [], studio = meta?.Studio ?? "", airDate = meta?.AirDate ?? "", score = meta?.Score, totalEpisodes = meta?.TotalEpisodes,
             episodeCount = main.Count, extraCount = episodes.Count - main.Count, latestEpisode = main.Max(e => e.Number), size = episodes.Sum(e => e.Size),
             watchedCount = main.Count(e => progress.GetValueOrDefault(e.Id)?.Watched == true), unnumbered = main.Count(e => e.Number == null),
             playedAt = episodes.Select(e => progress.GetValueOrDefault(e.Id)?.UpdatedAt).Max(),
@@ -637,6 +679,13 @@ public sealed class LibraryService(StateStore store, LibraryStore library, Playb
     }
 
     /// <summary>Poster files are named after the series ID, so serving one needs no index read.</summary>
+    public string FanartPath(string id)
+    {
+        if (!Regex.IsMatch(id, "^[0-9a-f]{16}$")) throw new FileNotFoundException("背景图不存在");
+        return Directory.EnumerateFiles(library.PosterDirectory, id + "-fanart.*").FirstOrDefault(p => !p.EndsWith(".tmp", StringComparison.Ordinal))
+            ?? throw new FileNotFoundException("背景图不存在");
+    }
+
     public string PosterPath(string id)
     {
         if (!Regex.IsMatch(id, "^[0-9a-f]{16}$")) throw new FileNotFoundException("海报不存在");
@@ -644,25 +693,33 @@ public sealed class LibraryService(StateStore store, LibraryStore library, Playb
             ?? throw new FileNotFoundException("海报不存在");
     }
 
-    private async Task<LibraryMetadata> Poster(string id, LibraryMetadata metadata, CancellationToken ct)
+    /// <summary>Downloads the poster ("{id}.ext") and the background image ("{id}-fanart.ext") into the cache.</summary>
+    private async Task<LibraryMetadata> Poster(string id, LibraryMetadata metadata, CancellationToken ct, bool untrusted = false)
     {
-        if (metadata.PosterUrl.Length == 0) return metadata;
+        // Addresses the AI agent found on the web may point anywhere, so they are fetched from public addresses only.
+        untrusted |= metadata.Source == "ai";
+        if (metadata.PosterUrl.Length > 0 && await Artwork(id, "", metadata.PosterUrl, untrusted, ct) is { } poster) metadata = metadata with { PosterFile = poster };
+        if (metadata.FanartUrl.Length > 0 && await Artwork(id, "-fanart", metadata.FanartUrl, untrusted, ct) is { } fanart) metadata = metadata with { FanartFile = fanart };
+        return metadata;
+    }
+
+    private async Task<string?> Artwork(string id, string suffix, string url, bool untrusted, CancellationToken ct)
+    {
         try
         {
-            // Addresses the AI agent found on the web may point anywhere, so they are fetched from public addresses only.
-            var bytes = metadata.Source == "ai" ? await WebFetchService.Shared.DownloadAsync(metadata.PosterUrl, PosterLimit, ct) : await http.GetBytesAsync(metadata.PosterUrl, PosterLimit, ct);
-            var extension = ImageExtension(bytes) ?? throw new InvalidDataException("海报不是 JPEG、PNG、WebP 或 GIF 图片");
-            var target = Path.Combine(library.PosterDirectory, id + extension);
+            var bytes = untrusted ? await WebFetchService.Shared.DownloadAsync(url, PosterLimit, ct) : await http.GetBytesAsync(url, PosterLimit, ct);
+            var extension = ImageExtension(bytes) ?? throw new InvalidDataException("图片不是 JPEG、PNG、WebP 或 GIF");
+            var target = Path.Combine(library.PosterDirectory, id + suffix + extension);
             await File.WriteAllBytesAsync(target + ".tmp", bytes, ct);
             AtomicFile.Replace(target + ".tmp", target);
-            foreach (var stale in Directory.EnumerateFiles(library.PosterDirectory, id + ".*").Where(p => p != target)) File.Delete(stale);
-            return metadata with { PosterFile = Path.GetFileName(target) };
+            foreach (var stale in Directory.EnumerateFiles(library.PosterDirectory, id + suffix + ".*").Where(p => p != target)) File.Delete(stale);
+            return Path.GetFileName(target);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             // Metadata is useful without artwork; refreshing the work retries the download.
-            logger.LogInformation(ex, "海报下载失败 {Url}", metadata.PosterUrl);
-            return metadata;
+            logger.LogInformation(ex, "图片下载失败 {Url}", url);
+            return null;
         }
     }
 
@@ -672,7 +729,8 @@ public sealed class LibraryService(StateStore store, LibraryStore library, Playb
         foreach (var file in Directory.EnumerateFiles(library.PosterDirectory))
         {
             var name = Path.GetFileName(file);
-            if (!ids.Contains(name.Split('.')[0])) try { File.Delete(file); } catch (IOException) { }
+            // "{id}.ext" and "{id}-fanart.ext": the ID is the first 16 characters.
+            if (name.Length < 16 || !ids.Contains(name[..16])) try { File.Delete(file); } catch (IOException) { }
         }
     }
 

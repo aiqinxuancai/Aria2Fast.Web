@@ -214,7 +214,7 @@ static class LibraryTests
                 var http = new HttpGateway(store);
                 using var memory = new MemoryCache(new MemoryCacheOptions());
                 var ai = new AiService(store, http);
-                var service = new LibraryService(store, library, new PlaybackStore(store), http, new MikanService(store, http, memory, ai), new BangumiClient(store, http), new TmdbClient(store, http), ai, NullLogger<LibraryService>.Instance);
+                var service = new LibraryService(store, library, new PlaybackStore(store), http, new MikanService(store, http, memory, ai), new BangumiClient(store, http), new TmdbClient(store, http), ai, new NfoWriter(store, library, NullLogger<NfoWriter>.Instance), NullLogger<LibraryService>.Instance);
                 var files = new JsonArray(
                     new JsonObject { ["path"] = Path.Combine(root, "作品", "[G] 作品 - 01.mkv"), ["selected"] = "true" },
                     new JsonObject { ["path"] = Path.Combine(root, "作品", "[G] 作品 - 01.ass"), ["selected"] = "true" },

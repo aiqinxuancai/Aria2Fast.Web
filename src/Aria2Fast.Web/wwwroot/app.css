@@ -113,3 +113,9 @@ a.button{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--l
 .folder-list{display:grid;gap:10px;margin-bottom:12px}.folder-row{display:grid;grid-template-columns:minmax(0,1fr) 120px auto;gap:10px;align-items:center}.folder-row input{width:100%}
 .spinner{display:inline-block;width:12px;height:12px;margin-right:8px;vertical-align:-1px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite}
 @media(max-width:760px){.folder-row{grid-template-columns:minmax(0,1fr) 96px}.folder-row button{grid-column:1/-1;justify-self:end}}
+/* Work page: background image behind the details */
+.library-hero{position:relative}.library-hero>*:not(.library-backdrop){position:relative;z-index:1}
+.library-backdrop{position:absolute;inset:0;background-size:cover;background-position:center 25%;opacity:.16;-webkit-mask-image:linear-gradient(90deg,transparent 0,#000 35%,#000 100%);mask-image:linear-gradient(90deg,transparent 0,#000 35%,#000 100%);pointer-events:none}
+:root[data-theme=dark] .library-backdrop{opacity:.22}
+/* Long option texts must not widen form columns (390 px phones). */
+.form-grid>*{min-width:0}.form-grid select{width:100%;text-overflow:ellipsis}

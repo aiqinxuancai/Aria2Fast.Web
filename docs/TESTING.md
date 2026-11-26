@@ -1,5 +1,12 @@
 # 实际测试记录
 
+## 2026-11-26 AI 刮削增强（DeepSeek、识图）与 NFO 写入
+
+- `dotnet build -c Release` 通过，无警告、无错误；99 项核心测试通过（新增 6 项）。覆盖：DeepSeek 搜索与 Fetch 的请求格式（Bearer Key、沿用 DeepSeek AI 接口的 Key、检索词截到 128 字、`summary` 作为正文、Markdown 中的图片）；直接读取网页时提取 og:image 与 img（含懒加载、相对地址，排除 data:）；四种 AI 协议的图片输入格式，无图片时请求体不变；agent 查看图片（只能看工具结果中出现过的图片、图片随下一轮发送、笔记保留、无识图模型时不提供该工具）与结论中的类型、背景图、每集信息校验；Bangumi 标签与制作公司、分集简介，TMDB 类型、制作公司与背景图；NFO 写入（作品文件夹的 tvshow.nfo、海报、背景图与季海报，季文件夹的 season.nfo，每集 NFO 的标题、季、集、日期、简介与 XML 转义，跳过小数集数，电影文件夹与散落电影，资料更新后重写，不覆盖没有标记的 NFO 与已有图片）。
+- `python tests/integration.py` 通过：第一阶段经 Mikan 匹配的作品在下载目录中写出 tvshow.nfo（含 Bangumi ID、简介）、PNG 海报与季海报、season.nfo，以及带分集标题和日期的每集 NFO；AI 刮削匹配的剧集写出 tvshow.nfo 与每集 NFO，AI 整理的电影写出 movie.nfo；网页读取方式设置校验。带 ffmpeg 的转码测试、`--real-aria`、`notifications.py` 同样通过。
+- `node tests/browser/smoke.cjs`（带与不带 ffmpeg）发现新增的较长下拉选项让 390px 手机上的设置页横向溢出，已让表单列可收缩并限制下拉框宽度，修复后通过，无 JS 错误。
+- 未验证：没有 DeepSeek Key，未真实调用 DeepSeek 搜索与 Fetch；没有使用真实的识图模型；未在真实 Jellyfin / Emby / Kodi 中导入生成的 NFO（格式按 Kodi NFO 规范编写）。
+
 ## 2026-11-26 媒体库分类、AI 刮削与 Keenable 搜索
 
 - `dotnet build -c Release` 通过，无警告、无错误；93 项核心测试通过（新增 7 项）。覆盖：电影名与年份解析（含片名中带年份数字的情况）；媒体目录解析（下载目录内的相对路径、外部目录的 `@ID` 路径、嵌套目录排除、越界路径拒绝、已删除文件返回 404 而非符号链接错误、设置校验与 ID 生成）；按目录分类扫描（番剧根目录跳过 tvshows / movies、剧集季度与集数、电影文件夹的分段与花絮、散落电影按片名与年份区分、外部目录暂时缺失时保留）；TMDB 电影与单季解析、Bangumi 条目类型；AI 刮削 agent（只接受查到过的条目 ID、拒绝未出现过的网址、无效 JSON 与不可用工具、步数用尽、无法确定）；Keenable 免费接口与带 Key 接口的请求格式、`snippet` 取代空的 `description`、五个搜索服务的回退顺序与关闭搜索。

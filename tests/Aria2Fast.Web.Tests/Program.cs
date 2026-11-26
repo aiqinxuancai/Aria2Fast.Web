@@ -164,6 +164,7 @@ passed += LibraryTests.Run();
 passed += PlaybackTests.Run();
 passed += MediaTests.Run();
 passed += await CategoryTests.Run();
+passed += await EnrichTests.Run();
 passed += await AiResearchTests.Run();
 passed += await LocalAriaStartupTests.Run();
 Console.WriteLine($"{passed} tests passed.");

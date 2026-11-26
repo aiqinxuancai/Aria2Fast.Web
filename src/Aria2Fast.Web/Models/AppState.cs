@@ -40,6 +40,10 @@ public sealed class WebSettings
     public string TavilyApiKey { get; set; } = "";
     /// <summary>Optional: without it Keenable's free keyless endpoint is used (with a lower rate limit).</summary>
     public string KeenableApiKey { get; set; } = "";
+    /// <summary>For DeepSeek's web search and fetch APIs; empty uses the key of an AI profile pointing at api.deepseek.com.</summary>
+    public string DeepSeekApiKey { get; set; } = "";
+    /// <summary>How the AI agents read web pages: direct (this server fetches the page) or deepseek (DeepSeek's fetch API, billed per call).</summary>
+    public string FetchProvider { get; set; } = "direct";
     /// <summary>Web search tried first by the AI agents: keenable, brave, serper, serpapi, tavily, or none to switch searching off.</summary>
     public string SearchProvider { get; set; } = "keenable";
     public string BraveApiKey { get; set; } = "";
@@ -107,6 +111,8 @@ public sealed class LibrarySettings
     ];
     /// <summary>When normal matching finds nothing, let the AI agent identify the work (each work once; needs an AI service).</summary>
     public bool AiScrape { get; set; } = true;
+    /// <summary>Write Kodi-style NFO files and artwork beside the videos, read by Jellyfin, Emby and Kodi.</summary>
+    public bool WriteNfo { get; set; } = true;
     /// <summary>Use ffmpeg (when found) to remux or transcode videos the browser cannot play directly.</summary>
     public bool Transcoding { get; set; } = true;
     /// <summary>ffmpeg executable or the folder holding ffmpeg and ffprobe; empty searches the application folder and PATH.</summary>
@@ -172,6 +178,8 @@ public sealed class AiProfile
     public string BaseUrl { get; set; } = "";
     public string ModelName { get; set; } = "";
     public string ApiKey { get; set; } = "";
+    /// <summary>The model accepts image input; the AI scraping agent may then look at candidate posters.</summary>
+    public bool Vision { get; set; }
 }
 
 public sealed record Notice(DateTimeOffset Time, string Level, string Message, string? Details = null);

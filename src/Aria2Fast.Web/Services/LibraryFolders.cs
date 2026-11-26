@@ -50,6 +50,22 @@ public static class LibraryFolders
         return Inside(folder.FullPath, libraryPath[(slash + 1)..]);
     }
 
+    /// <summary>An existing folder at a library directory path, inside its library folder; null otherwise.</summary>
+    public static string? FullDirectory(string libraryPath, IReadOnlyList<Folder> folders, string downloadRoot)
+    {
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(downloadRoot));
+        var relative = libraryPath;
+        if (libraryPath.StartsWith('@'))
+        {
+            var slash = libraryPath.IndexOf('/');
+            if ((slash > 1 ? folders.FirstOrDefault(f => f.Prefix == libraryPath[..slash]) : null) is not { } folder) return null;
+            (root, relative) = (folder.FullPath, libraryPath[(slash + 1)..]);
+        }
+        var full = Path.GetFullPath(Path.Combine(root, relative));
+        return full.StartsWith(root + Path.DirectorySeparatorChar, Comparison) && Directory.Exists(full)
+            && (new DirectoryInfo(full).Attributes & FileAttributes.ReparsePoint) == 0 ? full : null;
+    }
+
     /// <summary>Outside the folder is refused before existence is checked; symbolic links are refused last (LocalFile needs an existing path).</summary>
     private static string Inside(string folder, string relative)
     {

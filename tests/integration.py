@@ -508,9 +508,22 @@ def check_categories(api, fixture, data):
             time.sleep(.2)
         raise AssertionError('timed out waiting for ' + what)
 
+    def text(path, what):
+        return wait(lambda: path.read_text(encoding='utf-8') if path.exists() else None, what)
+
+    # NFO for Jellyfin / Emby / Kodi, written when the first-phase work matched (subject 9001 with episode titles and a PNG poster).
+    show = downloads / '测试番剧'
+    nfo = text(show / 'tvshow.nfo', 'tvshow.nfo')
+    assert 'Written by Aria2Fast.Web' in nfo and '<title>测试番剧中文名</title>' in nfo and '<uniqueid type="bangumi" default="true">9001</uniqueid>' in nfo and '<plot>测试简介</plot>' in nfo, nfo
+    assert (show / 'poster.png').read_bytes().startswith(b'\x89PNG') and (show / 'season01-poster.png').exists(), sorted(p.name for p in show.iterdir())
+    assert '<seasonnumber>1</seasonnumber>' in text(show / 'Season 1' / 'season.nfo', 'season.nfo')
+    episode = text(show / 'Season 1' / '[Fixture] 测试番剧 - 01 [1080p].nfo', 'episode NFO')
+    assert '<title>第一集</title>' in episode and '<episode>1</episode>' in episode and '<aired>2026-10-01</aired>' in episode, episode
+
     config = api('/state')['settings']
     library = config['library']
-    assert config['searchProvider'] == 'keenable' and config['keenableApiKey'] == '', config['searchProvider']
+    assert config['searchProvider'] == 'keenable' and config['keenableApiKey'] == '' and config['fetchProvider'] == 'direct' and library['writeNfo'], config['searchProvider']
+    api('/settings', 'PUT', {**config, 'fetchProvider': 'browser'}, expected=400)
     for invalid in ('google', 'bing'):
         api('/settings', 'PUT', {**config, 'searchProvider': invalid}, expected=400)
     assert [(f['id'], f['path'], f['category']) for f in library['folders']] == [('downloads', '', 'Anime'), ('tvshows', 'tvshows', 'Series'), ('movies', 'movies', 'Movie')], library['folders']
@@ -552,6 +565,12 @@ def check_categories(api, fixture, data):
     assembled = scrape(movie)
     meta = assembled['metadata']
     assert assembled['series']['matchedBy'] == 'Ai' and assembled['series']['title'] == '网页作品中文名' and meta['source'] == 'ai' and meta['summary'] == '根据网页整理的简介' and meta['airDate'] == '2020-05-01', assembled
+    show_nfo = text(downloads / 'tvshows' / 'AI 作品' / 'tvshow.nfo', 'series NFO')
+    assert '<uniqueid type="bangumi" default="true">9002</uniqueid>' in show_nfo, show_nfo
+    episode = text(downloads / 'tvshows' / 'AI 作品' / 'Season 1' / 'AI.Show.S01E02.1080p.nfo', 'series episode NFO')
+    assert '<season>1</season>' in episode and '<episode>2</episode>' in episode and '<title>第 2 集</title>' in episode, episode
+    movie_nfo = text(downloads / 'movies' / '网页作品 (2020)' / 'movie.nfo', 'movie NFO')
+    assert '<movie>' in movie_nfo and '<title>网页作品中文名</title>' in movie_nfo and '<year>2020</year>' in movie_nfo and 'uniqueid' not in movie_nfo, movie_nfo
     unsure = scrape(film)
     assert unsure['aiScrape']['state'] == 'failed' and '同名作品太多' in unsure['aiScrape']['message'] and unsure['series']['status'] == 'Unmatched', unsure
     # Automatic: an unmatched work gets one AI attempt after normal matching; the reason lands in its error.

@@ -26,6 +26,9 @@ public static class ConfigurationEndpoints
             input.SearchProvider = string.IsNullOrWhiteSpace(input.SearchProvider) ? "keenable" : input.SearchProvider.Trim().ToLowerInvariant();
             if (input.SearchProvider != "none" && !ResearchSearchTools.All.Contains(input.SearchProvider)) throw new ArgumentException("不支持的网络搜索服务");
             input.KeenableApiKey = input.KeenableApiKey?.Trim() ?? "";
+            input.DeepSeekApiKey = input.DeepSeekApiKey?.Trim() ?? "";
+            input.FetchProvider = string.IsNullOrWhiteSpace(input.FetchProvider) ? "direct" : input.FetchProvider.Trim().ToLowerInvariant();
+            if (input.FetchProvider is not ("direct" or "deepseek")) throw new ArgumentException("不支持的网页读取方式");
             input.MikanFallbackUrl = input.MikanFallbackUrl?.Trim() ?? "";
             if (input.MikanFallbackUrl.Length > 0) Validation.HttpUrl(input.MikanFallbackUrl);
             Validation.HttpUrl(input.MikanBaseUrl); Validation.HttpUrl(input.PushEndpoint);

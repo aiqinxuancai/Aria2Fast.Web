@@ -20,8 +20,9 @@ public sealed class WebFetchService
 
     public WebFetchService(HttpClient client) => _client = client;
 
+    /// <summary>images: absolute image addresses on the page (Open Graph image first), for agents that can look at pictures.</summary>
     public sealed record FetchResult(string url, string final_url, int status_code,
-        string content_type, string title, string content, bool truncated, bool ok, string error);
+        string content_type, string title, string content, bool truncated, bool ok, string error, IReadOnlyList<string>? images = null);
 
     public static string DescribeError(Exception exception)
     {
@@ -97,8 +98,10 @@ public sealed class WebFetchService
             using var reader = new StreamReader(buffer, encoding, detectEncodingFromByteOrderMarks: true);
             string content = await reader.ReadToEndAsync(timeout.Token);
             string title = "";
+            IReadOnlyList<string> images = [];
             if (mediaType is "text/html" or "application/xhtml+xml")
             {
+                images = Images(content, uri);
                 title = Regex.Match(content, @"<title\b[^>]*>(.*?)</title\s*>",
                     RegexOptions.IgnoreCase | RegexOptions.Singleline, TimeSpan.FromSeconds(1)).Groups[1].Value;
                 title = CleanHtml(title);
@@ -107,8 +110,23 @@ public sealed class WebFetchService
             bool truncated = content.Length > limit;
             return new FetchResult(url, uri.AbsoluteUri, status, mediaType,
                 title.Length > 500 ? title[..500] : title, truncated ? content[..limit] : content, truncated,
-                response.IsSuccessStatusCode, response.IsSuccessStatusCode ? "" : $"HTTP {status} {response.ReasonPhrase}");
+                response.IsSuccessStatusCode, response.IsSuccessStatusCode ? "" : $"HTTP {status} {response.ReasonPhrase}", images);
         }
+    }
+
+    /// <summary>og:image / twitter:image first, then img src (or lazy-loading data-src), made absolute; at most 20, no inline data.</summary>
+    public static IReadOnlyList<string> Images(string html, Uri page)
+    {
+        var options = RegexOptions.IgnoreCase | RegexOptions.Singleline;
+        var found = new List<string>();
+        foreach (Match meta in Regex.Matches(html, @"<meta\b[^>]*>", options, TimeSpan.FromSeconds(1)))
+            if (Regex.IsMatch(meta.Value, @"(?:property|name)\s*=\s*[""'](?:og:image|twitter:image)[""']", options, TimeSpan.FromSeconds(1))
+                && Regex.Match(meta.Value, @"content\s*=\s*[""']([^""']+)[""']", options, TimeSpan.FromSeconds(1)) is { Success: true } content)
+                found.Add(content.Groups[1].Value);
+        foreach (Match image in Regex.Matches(html, @"<img\b[^>]*?\s(?:data-src|data-original|src)\s*=\s*[""']([^""']+)[""']", options, TimeSpan.FromSeconds(1)))
+            found.Add(image.Groups[1].Value);
+        return found.Select(src => Uri.TryCreate(page, WebUtility.HtmlDecode(src.Trim()), out var absolute) && absolute.Scheme is "http" or "https" ? absolute.AbsoluteUri : null)
+            .OfType<string>().Distinct().Take(20).ToList();
     }
 
     private static string CleanHtml(string html)

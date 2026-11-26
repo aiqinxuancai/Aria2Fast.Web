@@ -107,12 +107,12 @@ static class CategoryTests
         // A scripted model: each answer depends on what the observations hold so far.
         LibraryScrapeAgent Agent(Func<JsonNode, string> model, Func<string, CancellationToken, Task<IReadOnlyList<AiResearchSource>>>? search = null,
             Func<string, CancellationToken, Task<WebFetchService.FetchResult>>? fetch = null) =>
-            new((prompt, instruction, ct) => Task.FromResult(model(JsonNode.Parse(prompt)!)), search == null ? null : (q, p, ct) => search(q, ct), ["keenable"], fetch,
+            new((prompt, instruction, images, ct) => Task.FromResult(model(JsonNode.Parse(prompt)!)), search == null ? null : (q, p, ct) => search(q, ct), ["keenable"], fetch,
                 (keyword, ct) => Task.FromResult(new List<BangumiCandidate> { new(9002, "Search Show", "", "2026-10-01", []), new(1, "Unrelated", "无关", "", []) }),
                 (id, ct) => Task.FromResult(new LibraryMetadata("bangumi", id, "Search Show", "", "简介", "2026-10-01", null, 12, "TV") { PosterUrl = "https://lain.bgm.tv/r/400/p.jpg" }),
                 null, null);
         var target = new ScrapeTarget("anime", "[G] Search Show S1", 1, null, ["[G] Search Show - 01.mkv"], "", "");
-        string Steps(JsonNode prompt) => string.Join(",", (prompt["observations"] as JsonArray ?? []).Select(o => o?["tool"]?.ToString() ?? "error"));
+        string Steps(JsonNode prompt) => string.Join(",", (prompt["observations"] as JsonArray ?? []).Where(o => o?["note"] == null).Select(o => o?["tool"]?.ToString() ?? "error"));
 
         await TestAsync("AI scraping agent: finishes with a Bangumi ID it looked up, refuses IDs it never saw", async () =>
         {
