@@ -167,7 +167,7 @@ public static partial class ReleaseNames
     [GeneratedRegex(@"(?<=\s)(?<!(?:Season|Part|Vol\.?|Volume|No\.?)\s)(\d{1,3}(?:\.5)?)(?:v\d)?(?=\s*(?:\[|\(|$))", RegexOptions.IgnoreCase)] private static partial Regex BareEpisode();
     // OP / ED only in capitals: as lower-case words they are too common in titles.
     [GeneratedRegex(@"(?:^|[\[\s])(?:NC\s?(?:OP|ED)|(?-i:OP|ED)|PV|CM|SPOT|Menu|Preview|Trailer|Teaser)\s?\d{0,2}(?:v\d)?(?=$|[\]\s\[\(])", RegexOptions.IgnoreCase)] private static partial Regex ExtraToken();
-    [GeneratedRegex(@"(?:^|[\[\s])(?:SPs?|OVA|OAD|Specials?|特典|番外)\s?(\d{1,2}(?:\.\d)?)?(?:v\d)?(?=$|[\]\s\[\(])", RegexOptions.IgnoreCase)] private static partial Regex SpecialToken();
+    [GeneratedRegex(@"(?:^|[\[\s])(?:SPs?|OVA|OAD|Specials?|特典|番外|特别篇|特別篇|总集篇|総集編)\s?(\d{1,2}(?:\.\d)?)?(?:v\d)?(?=$|[\]\s\[\(])", RegexOptions.IgnoreCase)] private static partial Regex SpecialToken();
 
     [GeneratedRegex(@"(?<![A-Za-z])Season\s?(\d{1,2})(?!\d)", RegexOptions.IgnoreCase)] private static partial Regex SeasonWord();
     [GeneratedRegex(@"(?<!\d)(\d{1,2})(?:st|nd|rd|th)\s+Season", RegexOptions.IgnoreCase)] private static partial Regex SeasonOrdinal();
@@ -176,6 +176,6 @@ public static partial class ReleaseNames
     [GeneratedRegex(@"(?<![A-Za-z])Season\s?\d{1,2}(?!\d)|(?<!\d)\d{1,2}(?:st|nd|rd|th)\s+Season|第\s*(?:\d{1,2}|[一二三四五六七八九十]{1,3})\s*[季期]|(?<![A-Za-z0-9])S\d{1,2}(?![A-Za-z0-9])", RegexOptions.IgnoreCase)]
     private static partial Regex SeasonMarker();
     [GeneratedRegex(@"^(?:Season\s?(\d{1,3})|S(\d{1,2})|第\s*(\d{1,2}|[一二三四五六七八九十]{1,3})\s*[季期])$", RegexOptions.IgnoreCase)] private static partial Regex SeasonFolderName();
-    [GeneratedRegex(@"^(?:SPs?|Specials?|OVAs?|OADs?|特典|映像特典|番外|Season\s?0+)$", RegexOptions.IgnoreCase)] private static partial Regex SpecialFolderName();
+    [GeneratedRegex(@"^(?:SPs?|Specials?|OVAs?|OADs?|特典|映像特典|番外|特别篇|特別篇|Season\s?0+)$", RegexOptions.IgnoreCase)] private static partial Regex SpecialFolderName();
     [GeneratedRegex(@"^(?:Extras?|Bonus|NC(?:OP|ED)?s?|Menus?|CDs?|Scans?|PVs?|CMs?|Trailers?|Others?|Featurettes?)$", RegexOptions.IgnoreCase)] private static partial Regex ExtraFolderName();
 }

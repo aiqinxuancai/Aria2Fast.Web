@@ -4,7 +4,7 @@ using Aria2Fast.Web.Models;
 
 namespace Aria2Fast.Web.Services;
 
-public sealed record BangumiCandidate(int Id, string Name, string NameCn, string Date, List<string> Aliases);
+public sealed record BangumiCandidate(int Id, string Name, string NameCn, string Date, List<string> Aliases, string Image = "", int? Episodes = null);
 
 /// <summary>Bangumi (bgm.tv) public API, https://bangumi.github.io/api/. Anime subjects are type 2; each season is its own subject.</summary>
 public sealed class BangumiClient(StateStore store, HttpGateway http)
@@ -16,13 +16,16 @@ public sealed class BangumiClient(StateStore store, HttpGateway http)
     public async Task<int?> Find(IEnumerable<string> terms, int season, CancellationToken ct)
     {
         foreach (var term in terms)
-        {
-            using var client = Client();
-            using var response = await client.PostAsJsonAsync(Validation.HttpUrl(Root + "/v0/search/subjects?limit=10"), new { keyword = term, filter = new { type = new[] { 2 } } }, ct);
-            response.EnsureSuccessStatusCode();
-            if (Pick(ParseSearch(JsonNode.Parse(await response.Content.ReadAsStringAsync(ct))), term, season) is { } id) return id;
-        }
+            if (Pick(await Search(term, ct, 10), term, season) is { } id) return id;
         return null;
+    }
+
+    public async Task<List<BangumiCandidate>> Search(string keyword, CancellationToken ct, int limit = 20)
+    {
+        using var client = Client();
+        using var response = await client.PostAsJsonAsync(Validation.HttpUrl(Root + "/v0/search/subjects?limit=" + limit), new { keyword, filter = new { type = new[] { 2 } } }, ct);
+        response.EnsureSuccessStatusCode();
+        return ParseSearch(JsonNode.Parse(await response.Content.ReadAsStringAsync(ct)));
     }
 
     public async Task<LibraryMetadata> Subject(int id, CancellationToken ct)
@@ -57,7 +60,9 @@ public sealed class BangumiClient(StateStore store, HttpGateway http)
 
     public static List<BangumiCandidate> ParseSearch(JsonNode? json) => (json?["data"] as JsonArray ?? []).OfType<JsonObject>()
         .Where(x => JsonText.Number(x["id"]) is not null)
-        .Select(x => new BangumiCandidate((int)JsonText.Number(x["id"])!, JsonText.String(x["name"]), JsonText.String(x["name_cn"]), JsonText.String(x["date"]), Aliases(x["infobox"] as JsonArray)))
+        .Select(x => new BangumiCandidate((int)JsonText.Number(x["id"])!, JsonText.String(x["name"]), JsonText.String(x["name_cn"]), JsonText.String(x["date"]), Aliases(x["infobox"] as JsonArray),
+            new[] { "common", "medium", "large", "small" }.Select(size => JsonText.String(x["images"]?[size])).FirstOrDefault(url => url.Length > 0) ?? "",
+            JsonText.Number(x["eps"]) is double eps && eps > 0 ? (int)eps : null))
         .ToList();
 
     /// <summary>

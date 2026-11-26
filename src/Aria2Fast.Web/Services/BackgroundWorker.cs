@@ -51,10 +51,11 @@ public sealed class BackgroundWorker(StateStore store, SubscriptionService subsc
                     if (download.NodeId == "local") library.Completed(download.Gid, task);
                     var name = task["bittorrent"]?["info"]?["name"]?.ToString() ?? task["files"]?[0]?["path"]?.ToString() ?? download.Name;
                     var sent = true;
+                    var link = download.NodeId == "local" ? library.PlayLink(task) : null;
                     if (snapshot.Settings.PushEnabled && !download.PushDeerNotified)
-                        sent &= await NotifyCompletion(download, name, bark: false, ct);
+                        sent &= await NotifyCompletion(download, name, link, bark: false, ct);
                     if (snapshot.Settings.BarkEnabled && !download.BarkNotified)
-                        sent &= await NotifyCompletion(download, name, bark: true, ct);
+                        sent &= await NotifyCompletion(download, name, link, bark: true, ct);
                     if (!sent) continue;
                     store.Update(s => s.Downloads.First(x => x.NodeId == download.NodeId && x.Gid == download.Gid).Notified = true);
                     store.Log("下载完成：" + name, "success");
@@ -75,12 +76,13 @@ public sealed class BackgroundWorker(StateStore store, SubscriptionService subsc
         if (body?["code"]?.ToString() is { } code && code != "0") throw new InvalidOperationException("PushDeer 推送失败");
     }
 
-    private async Task<bool> NotifyCompletion(Models.DownloadRecord download, string name, bool bark, CancellationToken ct)
+    /// <summary>With a public address set, a finished video links to the player (Bark opens it on tap; PushDeer shows it in the text).</summary>
+    private async Task<bool> NotifyCompletion(Models.DownloadRecord download, string name, string? link, bool bark, CancellationToken ct)
     {
         try
         {
-            if (bark) await PushBark("下载完成", name, ct);
-            else await Push("下载完成", name, ct);
+            if (bark) await PushBark("下载完成", name, ct, link);
+            else await Push("下载完成", link == null ? name : name + "\n\n播放：" + link, ct);
             store.Update(s =>
             {
                 var record = s.Downloads.First(x => x.NodeId == download.NodeId && x.Gid == download.Gid);
@@ -96,7 +98,7 @@ public sealed class BackgroundWorker(StateStore store, SubscriptionService subsc
         }
     }
 
-    public async Task PushBark(string title, string description, CancellationToken ct)
+    public async Task PushBark(string title, string description, CancellationToken ct, string? url = null)
     {
         var settings = store.Read().Settings;
         if (string.IsNullOrWhiteSpace(settings.BarkKey)) throw new ArgumentException("请设置 Bark 设备 Key");
@@ -104,12 +106,9 @@ public sealed class BackgroundWorker(StateStore store, SubscriptionService subsc
         endpoint.Path = endpoint.Path.TrimEnd('/');
         if (!endpoint.Path.EndsWith("/push", StringComparison.OrdinalIgnoreCase)) endpoint.Path += "/push";
         using var client = http.Create();
-        using var response = await client.PostAsJsonAsync(endpoint.Uri, new
-        {
-            device_key = settings.BarkKey.Trim(),
-            title,
-            body = description
-        }, ct);
+        var message = new Dictionary<string, string> { ["device_key"] = settings.BarkKey.Trim(), ["title"] = title, ["body"] = description };
+        if (url != null) message["url"] = url;
+        using var response = await client.PostAsJsonAsync(endpoint.Uri, message, ct);
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadFromJsonAsync<System.Text.Json.Nodes.JsonNode>(ct);
         if (body?["code"]?.ToString() != "200") throw new InvalidOperationException("Bark 推送失败，请检查设备 Key 和接口地址");

@@ -26,6 +26,9 @@ public static class ConfigurationEndpoints
             if (input.MikanFallbackUrl.Length > 0) Validation.HttpUrl(input.MikanFallbackUrl);
             Validation.HttpUrl(input.MikanBaseUrl); Validation.HttpUrl(input.PushEndpoint);
             Validation.HttpUrl(input.BarkEndpoint);
+            input.PublicUrl = input.PublicUrl?.Trim().TrimEnd('/') ?? "";
+            if (input.PublicUrl.Length > 0 && (Validation.HttpUrl(input.PublicUrl).Query.Length > 0 || input.PublicUrl.Contains('#')))
+                throw new ArgumentException("访问地址只能包含协议、域名、端口和路径");
             if (input.Oss.IntervalMinutes is < 1 or > 1440) throw new ArgumentException("OSS 同步间隔应在 1 至 1440 分钟之间");
             if (input.Oss.AutoSync)
             {

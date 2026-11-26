@@ -8,6 +8,8 @@ public sealed class LibraryState
     public List<LibraryEpisode> Episodes { get; set; } = [];
     /// <summary>Relative file path → subscription that downloaded it, recorded when the download completes.</summary>
     public Dictionary<string, LibraryOrigin> Origins { get; set; } = [];
+    /// <summary>Relative file path → episode number set by hand or by AI recognition; applied on every scan.</summary>
+    public Dictionary<string, LibraryEpisodeOverride> Overrides { get; set; } = [];
     public DateTimeOffset? LastScan { get; set; }
     public string? LastScanWarning { get; set; }
 }
@@ -52,6 +54,8 @@ public sealed class LibraryEpisode
     public DateTimeOffset Modified { get; set; }
     public double? Number { get; set; }
     public LibraryEpisodeKind Kind { get; set; }
+    /// <summary>Null when parsed from the file name, otherwise the override's source ("manual" or "ai").</summary>
+    public string? NumberSource { get; set; }
     public DateTimeOffset AddedAt { get; set; }
 }
 
@@ -69,3 +73,15 @@ public sealed record LibraryMetadata(string Source, int SourceId, string Name, s
 public sealed record LibraryEpisodeMeta(double Number, double Sort, string Name, string NameCn, string AirDate, int Type = 0);
 
 public sealed record LibraryOrigin(string SubscriptionId, string Gid, DateTimeOffset Time);
+
+/// <summary>Source is "manual" or "ai". A null number with kind Episode marks the file as unnumbered on purpose.</summary>
+public sealed record LibraryEpisodeOverride(double? Number, LibraryEpisodeKind Kind, string Source);
+
+/// <summary>Playback position per episode ID, kept apart from the index because it changes every few seconds during playback.</summary>
+public sealed class PlaybackState
+{
+    public int SchemaVersion { get; set; } = 1;
+    public Dictionary<string, PlaybackProgress> Episodes { get; set; } = [];
+}
+
+public sealed record PlaybackProgress(double Position, double Duration, bool Watched, DateTimeOffset UpdatedAt);

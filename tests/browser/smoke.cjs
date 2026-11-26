@@ -10,7 +10,7 @@ const root = path.resolve(__dirname, '../..');
 (async () => {
   const server = spawn(process.env.PYTHON || 'python', ['tests/integration.py', '--serve'], { cwd: root, stdio: ['pipe', 'pipe', 'inherit'] });
   let browser;
-  const deadline = setTimeout(() => { server.kill(); throw new Error('Browser test timed out'); }, 120000);
+  const deadline = setTimeout(() => { server.kill(); throw new Error('Browser test timed out'); }, 240000);
   try {
     const line = readline.createInterface({ input: server.stdout });
     const info = await new Promise((resolve, reject) => {
@@ -276,8 +276,9 @@ const root = path.resolve(__dirname, '../..');
     page.once('dialog',dialog=>dialog.accept());
     await page.locator('[data-delete-ai]').click();
     await page.locator('#ai .empty-state').filter({hasText:'尚未配置 AI 接口'}).waitFor();
+    await require('./library-player.cjs')(page,info,browser);
     await page.setViewportSize({width:390,height:844});
-    for (const tab of ['downloads','subscriptions','anime','activity','settings']) {
+    for (const tab of ['downloads','subscriptions','anime','library','activity','settings']) {
       await page.locator('nav a[data-page=' + tab + ']').click();
       await page.waitForTimeout(400);
       await page.evaluate(() => { window.scrollTo(0,0); document.querySelector('#toasts').replaceChildren(); });

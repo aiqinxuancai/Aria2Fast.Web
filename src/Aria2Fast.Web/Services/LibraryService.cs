@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Aria2Fast.Web.Infrastructure;
@@ -10,9 +11,11 @@ namespace Aria2Fast.Web.Services;
 /// Keeps the media library in step with the local download directory: scans on start, on a timer and after
 /// local downloads finish, then fetches metadata and posters for new works one at a time.
 /// </summary>
-public sealed class LibraryService(StateStore store, LibraryStore library, HttpGateway http, MikanService mikan, BangumiClient bangumi, TmdbClient tmdb, ILogger<LibraryService> logger) : BackgroundService
+public sealed class LibraryService(StateStore store, LibraryStore library, PlaybackStore playback, HttpGateway http, MikanService mikan, BangumiClient bangumi, TmdbClient tmdb, AiService ai, ILogger<LibraryService> logger) : BackgroundService
 {
     private const int PosterLimit = 10 * 1024 * 1024;
+    private const int RecognizeLimit = 200;
+    private const string RecognizeInstruction = "你会收到一部动画（某一季）的文件列表，判断每个视频文件是第几集。episode 为本季内的集数（数字，可带小数如 12.5），无法判断时为 null；kind 为 episode（正片）、special（SP、OVA、OAD、特别篇）或 extra（OP、ED、PV、CM、菜单等花絮）。只返回 JSON 数组，不要其他内容：[{\"file\":\"原样的文件名\",\"episode\":5,\"kind\":\"episode\"}]";
     private readonly SemaphoreSlim scanGate = new(1);
     private readonly SemaphoreSlim scrapeGate = new(1);
     private readonly SemaphoreSlim wake = new(0);
@@ -58,12 +61,36 @@ public sealed class LibraryService(StateStore store, LibraryStore library, HttpG
             var subscriptions = state.Subscriptions.Where(s => s.NodeId == "local").ToDictionary(s => s.Id);
             var (files, truncated) = await Task.Run(() => (LibraryScanner.Walk(root, out var cut), cut), ct);
             var now = DateTimeOffset.UtcNow;
-            // Merge under the store lock so metadata fetched during the walk is not overwritten.
-            next = library.Replace(current => LibraryScanner.Build(files, claims, subscriptions, current, now, truncated));
-            RemoveStalePosters(next);
+            // A missing disk or an unmounted NAS share (an empty mount point) would otherwise empty the index and lose
+            // manual matches, corrections and playback history.
+            if (files.Count == 0 && library.Query(l => l.Episodes.Count > 0) && !HasEntries(root))
+                next = library.Replace(l => { l.LastScan = now; l.LastScanWarning = "下载目录不存在、无法访问或为空，媒体库保留上次扫描的结果"; return l; });
+            else
+            {
+                // Merge under the store lock so metadata fetched during the walk is not overwritten.
+                next = library.Replace(current => LibraryScanner.Build(files, claims, subscriptions, current, now, truncated));
+                RemoveStalePosters(next);
+                PruneProgress(next);
+            }
         }
         finally { Scanning = false; scanGate.Release(); }
         return Status(next);
+    }
+
+    private static bool HasEntries(string root)
+    {
+        try { return Directory.Exists(root) && Directory.EnumerateFileSystemEntries(root).Any(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return false; }
+    }
+
+    /// <summary>Forgets positions of videos that are gone, once a month old: a missing disk may come back.</summary>
+    private void PruneProgress(LibraryState state)
+    {
+        var ids = state.Episodes.Select(e => e.Id).ToHashSet();
+        var cutoff = DateTimeOffset.UtcNow.AddDays(-30);
+        bool Stale(KeyValuePair<string, PlaybackProgress> x) => !ids.Contains(x.Key) && x.Value.UpdatedAt < cutoff;
+        if (playback.Query(p => p.Episodes.Any(Stale)))
+            playback.Update(p => { foreach (var key in p.Episodes.Where(Stale).Select(x => x.Key).ToList()) p.Episodes.Remove(key); });
     }
 
     /// <summary>
@@ -109,15 +136,34 @@ public sealed class LibraryService(StateStore store, LibraryStore library, HttpG
         var parent = task["following"]?.ToString();
         var subscription = state.Subscriptions.FirstOrDefault(s => s.NodeId == "local" && s.History.Any(h => h.Gid != null && (h.Gid == gid || h.Gid == parent)));
         if (subscription == null) return;
+        var paths = VideoPaths(state, task);
+        if (paths.Count == 0) return;
+        var now = DateTimeOffset.UtcNow;
+        library.Update(l => { foreach (var path in paths) l.Origins[path] = new(subscription.Id, gid, now); });
+    }
+
+    /// <summary>Selected video files of an aria2 task, relative to the download root.</summary>
+    private static List<string> VideoPaths(AppState state, JsonNode task)
+    {
         var root = Path.GetFullPath(state.Settings.DownloadDirectory);
-        var paths = (task["files"] as JsonArray ?? []).OfType<JsonObject>()
+        return (task["files"] as JsonArray ?? []).OfType<JsonObject>()
             .Where(f => f["selected"]?.ToString() != "false").Select(f => f["path"]?.ToString() ?? "")
             .Where(p => p.Length > 0 && ReleaseNames.IsVideo(p))
             .Select(p => Path.GetRelativePath(root, Path.GetFullPath(p)).Replace('\\', '/'))
             .Where(p => p != ".." && !p.StartsWith("../") && !Path.IsPathRooted(p)).ToList();
-        if (paths.Count == 0) return;
-        var now = DateTimeOffset.UtcNow;
-        library.Update(l => { foreach (var path in paths) l.Origins[path] = new(subscription.Id, gid, now); });
+    }
+
+    /// <summary>
+    /// Player address of a finished local download's first video, for notifications. Episode IDs come from the path,
+    /// so the link is known before the scan that indexes the file. Null without a public address.
+    /// </summary>
+    public string? PlayLink(JsonNode task)
+    {
+        var state = store.Read();
+        var site = state.Settings.PublicUrl.Trim().TrimEnd('/');
+        if (site.Length == 0 || !state.Settings.Library.Enabled) return null;
+        var path = VideoPaths(state, task).Order(StringComparer.Ordinal).FirstOrDefault();
+        return path == null ? null : site + "/#play/" + LibraryScanner.Hash(path);
     }
 
     private async Task ScrapeDue(CancellationToken ct)
@@ -222,6 +268,82 @@ public sealed class LibraryService(StateStore store, LibraryStore library, HttpG
         return Detail(id);
     }
 
+    /// <summary>Bangumi anime search for choosing a match by hand.</summary>
+    public async Task<object> Search(string? keyword, CancellationToken ct)
+    {
+        keyword = keyword?.Trim() ?? "";
+        if (keyword.Length is 0 or > 100) throw new ArgumentException("请输入 1 至 100 个字符的作品名");
+        return (await bangumi.Search(keyword, ct)).Select(c => new { c.Id, c.Name, c.NameCn, c.Date, c.Image, c.Episodes, url = $"https://bgm.tv/subject/{c.Id}" });
+    }
+
+    /// <summary>Corrects one video's episode number and kind; kept across scans until reset.</summary>
+    public object SetNumber(string episodeId, double? number, LibraryEpisodeKind kind)
+    {
+        if (number is { } n && (!double.IsFinite(n) || n < 0 || n > 9999)) throw new ArgumentException("集数应在 0 至 9999 之间");
+        if (!Enum.IsDefined(kind)) throw new ArgumentException("视频类型无效");
+        string? seriesId = null;
+        library.Update(l =>
+        {
+            var episode = l.Episodes.FirstOrDefault(e => e.Id == episodeId) ?? throw new FileNotFoundException("视频不存在或已被移除");
+            l.Overrides[episode.Path] = new(number, kind, "manual");
+            episode.Number = number; episode.Kind = kind; episode.NumberSource = "manual";
+            seriesId = episode.SeriesId;
+        });
+        return Detail(seriesId!);
+    }
+
+    /// <summary>Drops manual and AI corrections for one video (or a whole work) and reads the numbers from the file names again.</summary>
+    public async Task<object> ResetNumbers(string? seriesId, string? episodeId, CancellationToken ct)
+    {
+        library.Update(l =>
+        {
+            var episodes = l.Episodes.Where(e => e.Id == episodeId || (episodeId == null && e.SeriesId == seriesId)).ToList();
+            if (episodes.Count == 0) throw new FileNotFoundException("视频不存在或已被移除");
+            seriesId = episodes[0].SeriesId;
+            foreach (var episode in episodes) l.Overrides.Remove(episode.Path);
+        });
+        await Scan(ct);
+        return Detail(seriesId!);
+    }
+
+    /// <summary>
+    /// Asks the selected AI model for the episode numbers the file names did not reveal. Run by hand per work:
+    /// a first scan of a large collection would otherwise send a flood of requests.
+    /// </summary>
+    public async Task<object> Recognize(string seriesId, CancellationToken ct)
+    {
+        var state = library.Read();
+        var series = state.Series.FirstOrDefault(s => s.Id == seriesId) ?? throw new FileNotFoundException("作品不存在或已被移除");
+        var targets = state.Episodes.Where(e => e.SeriesId == seriesId && e.Number == null && e.Kind == LibraryEpisodeKind.Episode && e.NumberSource != "manual")
+            .Take(RecognizeLimit).ToDictionary(e => series.Directory.Length > 0 ? e.Path[(series.Directory.Length + 1)..] : e.Path);
+        if (targets.Count == 0) throw new ArgumentException("这部作品的视频都已识别出集数");
+        var prompt = JsonSerializer.Serialize(new { work = DisplayTitle(series), season = series.Season, totalEpisodes = series.Metadata?.TotalEpisodes, files = targets.Keys }, StateStore.Json);
+        var answer = await ai.Send(prompt, RecognizeInstruction, ct);
+        List<RecognizedEpisode> results;
+        try { results = JsonSerializer.Deserialize<List<RecognizedEpisode>>(AiService.CleanJson(answer), StateStore.Json) ?? []; }
+        catch (JsonException) { throw new InvalidDataException("AI 返回的内容无法解析，请重试，或手动修改集数"); }
+        var found = new Dictionary<string, LibraryEpisodeOverride>();
+        foreach (var result in results)
+        {
+            if (result.File == null || !targets.TryGetValue(result.File, out var episode)) continue;
+            var kind = result.Kind?.ToLowerInvariant() switch { "special" => LibraryEpisodeKind.Special, "extra" => LibraryEpisodeKind.Extra, _ => LibraryEpisodeKind.Episode };
+            var number = result.Episode is { } n && double.IsFinite(n) && n is >= 0 and <= 9999 ? n : (double?)null;
+            if (number != null || kind != LibraryEpisodeKind.Episode) found[episode.Path] = new(number, kind, "ai");
+        }
+        library.Update(l =>
+        {
+            foreach (var episode in l.Episodes.Where(e => found.ContainsKey(e.Path) && e.NumberSource != "manual"))
+            {
+                var value = found[episode.Path];
+                l.Overrides[episode.Path] = value;
+                episode.Number = value.Number; episode.Kind = value.Kind; episode.NumberSource = "ai";
+            }
+        });
+        return new { recognized = found.Count, total = targets.Count, detail = Detail(seriesId) };
+    }
+
+    private sealed record RecognizedEpisode(string? File, double? Episode, string? Kind);
+
     public object Status() => Status(library.Read());
 
     private object Status(LibraryState state)
@@ -237,52 +359,95 @@ public sealed class LibraryService(StateStore store, LibraryStore library, HttpG
         };
     }
 
+    /// <summary>The poster wall: every work, plus the "continue watching" row ordered by when each work was last played.</summary>
     public object Overview()
     {
         var state = library.Read();
+        var progress = playback.Read().Episodes;
         var episodes = state.Episodes.ToLookup(e => e.SeriesId);
-        return new { status = Status(state), series = state.Series.Select(s => Summary(s, episodes[s.Id].ToList())) };
+        var works = state.Series.Select(s => (Series: s, Episodes: Ordered(episodes[s.Id]).ToList())).ToList();
+        var continuing = works
+            .Select(x => (x.Series, x.Episodes, Played: x.Episodes.Select(e => progress.GetValueOrDefault(e.Id)?.UpdatedAt).Max()))
+            .Where(x => x.Played != null).OrderByDescending(x => x.Played)
+            .Select(x => (x.Series, x.Played, Next: Resume(x.Episodes, progress))).Where(x => x.Next != null).Take(12)
+            .Select(x => new { seriesId = x.Series.Id, title = DisplayTitle(x.Series), poster = PosterUrl(x.Series), playedAt = x.Played, episode = EpisodeItem(x.Next!, x.Series.Metadata, progress) });
+        return new { status = Status(state), continueWatching = continuing, series = works.Select(x => Summary(x.Series, x.Episodes, progress)) };
     }
 
     public object Detail(string id)
     {
         var state = library.Read();
         var series = state.Series.FirstOrDefault(s => s.Id == id) ?? throw new FileNotFoundException("作品不存在或已被移除");
-        var episodes = state.Episodes.Where(e => e.SeriesId == id).ToList();
+        var episodes = Ordered(state.Episodes.Where(e => e.SeriesId == id)).ToList();
+        var progress = playback.Query(p => episodes.Where(e => p.Episodes.ContainsKey(e.Id)).ToDictionary(e => e.Id, e => p.Episodes[e.Id]));
         var meta = series.Metadata;
+        var next = Resume(episodes, progress);
         return new
         {
-            series = Summary(series, episodes),
+            series = Summary(series, episodes, progress),
             metadata = meta == null ? null : new
             {
                 meta.Source, meta.SourceId, meta.Name, meta.NameCn, meta.Summary, meta.AirDate, meta.Score, meta.TotalEpisodes, meta.Platform, meta.UpdatedAt,
                 url = meta.Source == "bangumi" ? $"https://bgm.tv/subject/{meta.SourceId}" : $"https://www.themoviedb.org/tv/{meta.SourceId}"
             },
-            episodes = episodes.Select(e =>
-            {
-                var info = EpisodeInfo(meta, e);
-                return new { e.Id, e.Path, name = Path.GetFileName(e.Path), e.Size, e.Modified, e.Number, e.Kind, e.AddedAt, title = info == null ? "" : info.NameCn.Length > 0 ? info.NameCn : info.Name, airDate = info?.AirDate ?? "" };
-            })
+            resume = next == null ? null : EpisodeItem(next, meta, progress),
+            aiAvailable = store.Read().Settings.AiProfiles.Any(p => !string.IsNullOrWhiteSpace(p.ApiKey)),
+            episodes = episodes.Select(e => EpisodeItem(e, meta, progress))
         };
     }
 
-    private static object Summary(LibrarySeries s, List<LibraryEpisode> episodes)
+    private static object Summary(LibrarySeries s, List<LibraryEpisode> episodes, IReadOnlyDictionary<string, PlaybackProgress> progress)
     {
         var meta = s.Metadata;
         var main = episodes.Where(e => e.Kind == LibraryEpisodeKind.Episode).ToList();
         return new
         {
-            s.Id, title = meta is null ? s.Title : meta.NameCn.Length > 0 ? meta.NameCn : meta.Name.Length > 0 ? meta.Name : s.Title,
-            originalTitle = meta?.Name ?? "", folderTitle = s.Title, s.Directory, s.Season, s.SubscriptionId, s.MikanId, s.BgmId, s.TmdbId,
+            s.Id, title = DisplayTitle(s), originalTitle = meta?.Name ?? "", folderTitle = s.Title, s.Directory, s.Season, s.SubscriptionId, s.MikanId, s.BgmId, s.TmdbId,
             s.ManualMatch, s.MatchedBy, s.Status, s.Error,
-            poster = meta is { PosterFile.Length: > 0 } ? $"/api/library/{s.Id}/poster?v={meta.UpdatedAt.ToUnixTimeSeconds()}" : "",
-            airDate = meta?.AirDate ?? "", score = meta?.Score, totalEpisodes = meta?.TotalEpisodes,
+            poster = PosterUrl(s), airDate = meta?.AirDate ?? "", score = meta?.Score, totalEpisodes = meta?.TotalEpisodes,
             episodeCount = main.Count, extraCount = episodes.Count - main.Count, latestEpisode = main.Max(e => e.Number), size = episodes.Sum(e => e.Size),
+            watchedCount = main.Count(e => progress.GetValueOrDefault(e.Id)?.Watched == true), unnumbered = main.Count(e => e.Number == null),
+            playedAt = episodes.Select(e => progress.GetValueOrDefault(e.Id)?.UpdatedAt).Max(),
             s.AddedAt, s.UpdatedAt
         };
     }
 
-    private static LibraryEpisodeMeta? EpisodeInfo(LibraryMetadata? meta, LibraryEpisode episode)
+    public static string DisplayTitle(LibrarySeries s) =>
+        s.Metadata is not { } meta ? s.Title : meta.NameCn.Length > 0 ? meta.NameCn : meta.Name.Length > 0 ? meta.Name : s.Title;
+
+    public static string PosterUrl(LibrarySeries s) => s.Metadata is { PosterFile.Length: > 0 } meta ? $"/api/library/{s.Id}/poster?v={meta.UpdatedAt.ToUnixTimeSeconds()}" : "";
+
+    /// <summary>Main episodes, then specials, then extras; unnumbered videos last within each, by path.</summary>
+    public static IEnumerable<LibraryEpisode> Ordered(IEnumerable<LibraryEpisode> episodes) =>
+        episodes.OrderBy(e => e.Kind).ThenBy(e => e.Number ?? double.MaxValue).ThenBy(e => e.Path, StringComparer.Ordinal);
+
+    public static bool InProgress(PlaybackProgress p) => p.Position > 10 && (p.Duration <= 0 || p.Position < Math.Min(p.Duration * 0.9, p.Duration - 15));
+
+    /// <summary>What "continue" plays: the video last played if unfinished, else the next unwatched main episode after it.</summary>
+    public static LibraryEpisode? Resume(IReadOnlyList<LibraryEpisode> ordered, IReadOnlyDictionary<string, PlaybackProgress> progress)
+    {
+        var main = ordered.Where(e => e.Kind == LibraryEpisodeKind.Episode).ToList();
+        if (main.Count == 0) main = ordered.ToList();
+        var last = ordered.Where(e => progress.ContainsKey(e.Id)).MaxBy(e => progress[e.Id].UpdatedAt);
+        if (last != null && InProgress(progress[last.Id])) return last;
+        bool Unwatched(LibraryEpisode e) => progress.GetValueOrDefault(e.Id)?.Watched != true;
+        var after = last == null ? 0 : main.IndexOf(last) + 1;
+        return main.Skip(after).FirstOrDefault(Unwatched) ?? main.FirstOrDefault(Unwatched);
+    }
+
+    public static object EpisodeItem(LibraryEpisode e, LibraryMetadata? meta, IReadOnlyDictionary<string, PlaybackProgress> progress)
+    {
+        var info = EpisodeInfo(meta, e);
+        var p = progress.GetValueOrDefault(e.Id);
+        return new
+        {
+            e.Id, e.Path, name = Path.GetFileName(e.Path), e.Size, e.Modified, e.Number, e.Kind, e.NumberSource, e.AddedAt,
+            title = info == null ? "" : info.NameCn.Length > 0 ? info.NameCn : info.Name, airDate = info?.AirDate ?? "",
+            watched = p?.Watched == true, position = p?.Position ?? 0, duration = p?.Duration ?? 0, playedAt = p?.UpdatedAt
+        };
+    }
+
+    public static LibraryEpisodeMeta? EpisodeInfo(LibraryMetadata? meta, LibraryEpisode episode)
     {
         if (meta == null || episode.Number is not double number || episode.Kind == LibraryEpisodeKind.Extra) return null;
         var type = episode.Kind == LibraryEpisodeKind.Special ? 1 : 0;
@@ -307,7 +472,7 @@ public sealed class LibraryService(StateStore store, LibraryStore library, HttpG
             var extension = ImageExtension(bytes) ?? throw new InvalidDataException("海报不是 JPEG、PNG、WebP 或 GIF 图片");
             var target = Path.Combine(library.PosterDirectory, id + extension);
             await File.WriteAllBytesAsync(target + ".tmp", bytes, ct);
-            File.Move(target + ".tmp", target, true);
+            AtomicFile.Replace(target + ".tmp", target);
             foreach (var stale in Directory.EnumerateFiles(library.PosterDirectory, id + ".*").Where(p => p != target)) File.Delete(stale);
             return metadata with { PosterFile = Path.GetFileName(target) };
         }

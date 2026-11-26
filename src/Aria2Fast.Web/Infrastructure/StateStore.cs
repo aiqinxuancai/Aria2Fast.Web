@@ -47,7 +47,7 @@ public sealed class StateStore
             var temp = file + ".tmp";
             File.WriteAllText(temp, JsonSerializer.Serialize(copy, Json));
             if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(temp, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-            File.Move(temp, file, true);
+            AtomicFile.Replace(temp, file);
             state = copy;
             return result;
         }

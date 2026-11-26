@@ -72,9 +72,11 @@ public static class LibraryScanner
             if (!groups.TryGetValue(key, out var group)) groups[key] = group = new(directory, season, title);
             group.Claimed ??= candidates.FirstOrDefault(s => s.Season == season) ?? candidates.FirstOrDefault(s => s.Season == 0 || season == 0);
             var old = oldEpisodes.GetValueOrDefault(file.Path);
+            var fix = previous.Overrides.GetValueOrDefault(file.Path);
             group.Episodes.Add(new LibraryEpisode
             {
-                Id = Hash(file.Path), Path = file.Path, Size = file.Size, Modified = file.Modified, Number = parsed.Number, Kind = kind,
+                Id = Hash(file.Path), Path = file.Path, Size = file.Size, Modified = file.Modified,
+                Number = fix == null ? parsed.Number : fix.Number, Kind = fix?.Kind ?? kind, NumberSource = fix?.Source,
                 // Existing files keep their modification time, so a first scan still orders works by recency.
                 AddedAt = old?.AddedAt ?? (file.Modified < now ? file.Modified : now)
             });
@@ -106,6 +108,7 @@ public static class LibraryScanner
             Series = series.OrderByDescending(s => s.UpdatedAt).ToList(),
             Episodes = episodes,
             Origins = previous.Origins.Where(o => paths.Contains(o.Key)).ToDictionary(),
+            Overrides = previous.Overrides.Where(o => paths.Contains(o.Key)).ToDictionary(),
             LastScan = now,
             LastScanWarning = truncated ? $"视频文件超过 {FileLimit} 个，仅索引了前 {FileLimit} 个" : null
         };

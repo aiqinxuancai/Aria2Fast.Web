@@ -51,6 +51,8 @@ public sealed class WebSettings
     public bool BarkEnabled { get; set; }
     public string BarkEndpoint { get; set; } = "https://api.day.app/";
     public string BarkKey { get; set; } = "";
+    /// <summary>Address this site is reached at from outside (e.g. behind a reverse proxy); notifications link to the player with it.</summary>
+    public string PublicUrl { get; set; } = "";
     public OssSettings Oss { get; set; } = new();
     public LibrarySettings Library { get => library; set => library = value ?? new(); }
     private LibrarySettings library = new();

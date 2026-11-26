@@ -175,7 +175,7 @@ class Fixtures(BaseHTTPRequestHandler):
         if self.path.startswith('/bgm/v0/search/subjects'):
             BGM_AGENTS.append(self.headers.get('User-Agent', ''))
             found = 'Search Show' in body.get('keyword', '') and body.get('filter', {}).get('type') == [2]
-            data = [{'id': 9002, 'name': 'Search Show', 'name_cn': '', 'date': '2026-10-01', 'infobox': []}] if found else [{'id': 1, 'name': 'Unrelated', 'name_cn': '无关作品', 'infobox': []}]
+            data = [{'id': 9002, 'name': 'Search Show', 'name_cn': '', 'date': '2026-10-01', 'infobox': [], 'eps': 12, 'images': {'common': f'http://127.0.0.1:{self.server.server_port}/bgm/poster.png'}}] if found else [{'id': 1, 'name': 'Unrelated', 'name_cn': '无关作品', 'infobox': []}]
             return self.reply({'data': data, 'total': len(data)})
         if self.path.startswith('/invalid/'):
             self.send_error(401, 'Invalid test credentials')
@@ -183,6 +183,10 @@ class Fixtures(BaseHTTPRequestHandler):
         ai_text = '连接成功'
         if '番剧调查 Agent' in json.dumps(body, ensure_ascii=False):
             ai_text = json.dumps({'action': 'finish', 'score': None, 'overview': '作品概况', 'originalWork': '原作资料尚未核实', 'adaptation': '改编资料尚未核实', 'review': '测试评析', 'recommendation': '建议参考官方信息', 'caveats': '未联网核实'}, ensure_ascii=False)
+        if '判断每个视频文件是第几集' in json.dumps(body, ensure_ascii=False):
+            # Media library episode recognition: every listed file becomes episode 3.
+            prompt = next(json.loads(m['content']) for m in body.get('messages', []) if m.get('role') == 'user')
+            ai_text = '```json\n' + json.dumps([{'file': f, 'episode': 3, 'kind': 'episode'} for f in prompt['files']] + [{'file': 'not-listed.mkv', 'episode': 1}], ensure_ascii=False) + '\n```'
         if self.path.endswith('/chat/completions'):
             return self.reply({'choices': [{'message': {'content': ai_text}}]})
         if self.path.endswith('/responses'):
@@ -299,8 +303,8 @@ def start_app(real=False):
     jar = http.cookiejar.CookieJar()
     client = request.build_opener(request.HTTPCookieProcessor(jar))
 
-    def api(path, method='GET', body=None, expected=200, csrf=True, raw=False):
-        headers = {'Content-Type': 'application/json'}
+    def api(path, method='GET', body=None, expected=200, csrf=True, raw=False, headers=None):
+        headers = {'Content-Type': 'application/json', **(headers or {})}
         if csrf:
             headers['X-Aria2Fast'] = '1'
         payload = None if body is None else json.dumps(body).encode()
@@ -404,7 +408,7 @@ def check_anime_sources(api, fixture, node):
     print('PASS anime sources: multi-source search, isolation, Torznab caps/key injection/302 magnet, torrent prefetch')
 
 
-def check_library(api, fixture, data):
+def check_library(api, fixture, data, base):
     """Media library: subscription folder → Mikan page → Bangumi subject, search fallback, poster cache and manual match."""
     downloads = Path(data) / 'downloads'
 
@@ -460,6 +464,8 @@ def check_library(api, fixture, data):
     api('/library/scan', 'POST')
     assert next(s for s in api('/library')['series'] if s['id'] == loose['id'])['manualMatch']
 
+    check_playback(api, fixture, base, work, touch)
+
     # A subscription form opened before the match must not erase it; another Mikan work clears it.
     current = next(s for s in api('/subscriptions') if s['id'] == sub['id'])
     assert api('/subscriptions', 'POST', {**current, 'bgmId': None})['bgmId'] == 9001
@@ -473,6 +479,113 @@ def check_library(api, fixture, data):
     print('PASS media library: subscription folders, Mikan -> Bangumi, search fallback, posters, manual match, settings validation')
 
 
+def check_play_link(api, fixture):
+    """A finished local video notifies with a link to its player page. Needs real aria2: the fixture node is remote."""
+    config = api('/state')['settings']
+    api('/settings', 'PUT', {**config, 'publicUrl': 'https://media.example/', 'barkEnabled': True, 'barkKey': 'bark-key', 'barkEndpoint': fixture + '/bark/'})
+    NOTIFICATIONS.clear()
+    result = api('/tasks', 'POST', {'urls': [fixture + '/file-episode-01.mkv'], 'nodeId': 'local'})
+    assert result[0]['error'] is None, result
+    for _ in range(300):
+        if any(provider == 'bark' for provider, _ in NOTIFICATIONS):
+            break
+        time.sleep(.2)
+    bark = next(body for provider, body in NOTIFICATIONS if provider == 'bark')
+    expected = 'https://media.example/#play/' + hashlib.sha256('file-episode-01.mkv'.encode()).hexdigest()[:16]
+    assert bark['url'] == expected and bark['body'].endswith('file-episode-01.mkv'), bark
+    api('/settings', 'PUT', config)
+    print('PASS completion notification links to the player (real aria2)')
+
+
+def check_playback(api, fixture, base, work, touch):
+    """Second phase: Range streaming, subtitles, progress, signed links for external players, number corrections and AI recognition."""
+    detail = api('/library/' + work['id'])
+    first, second = detail['episodes'][0], detail['episodes'][1]
+    content, headers = api('/library/episodes/' + first['id'] + '/stream', raw=True, headers={'Range': 'bytes=1-3'}, expected=206)
+    assert content == b'ide' and headers['Content-Range'] == 'bytes 1-3/5' and headers['Content-Type'] == 'video/x-matroska', dict(headers)
+    page = api('/library/episodes/' + first['id'])
+    assert page['next'] == second['id'] and page['previous'] is None and page['type'] == 'video/x-matroska', page
+    assert [t['label'] for t in page['subtitles']] == ['字幕'] and page['subtitles'][0]['format'] == 'ASS', page['subtitles']
+    vtt, headers = api(page['subtitles'][0]['url'].removeprefix('/api'), raw=True)
+    assert vtt.startswith(b'WEBVTT') and headers['Content-Type'].startswith('text/vtt'), dict(headers)
+    api('/library/episodes/' + first['id'] + '/subtitles/5', expected=404)
+    api('/library/episodes/0123456789abcdef', expected=404)
+    api('/library/episodes/0123456789abcdef/stream', expected=404)
+
+    # Progress: resume point, watched past 90 %, "continue watching" moves to the next episode.
+    assert not api('/library/episodes/' + first['id'] + '/progress', 'POST', {'position': 600, 'duration': 1440})['watched']
+    api('/library/episodes/' + first['id'] + '/progress', 'POST', {'position': -1, 'duration': 1440}, expected=400)
+    api('/library/episodes/0123456789abcdef/progress', 'POST', {'position': 1, 'duration': 1440}, expected=404)
+    resume = api('/library')['continueWatching']
+    assert resume and resume[0]['episode']['id'] == first['id'] and resume[0]['episode']['position'] == 600, resume
+    assert api('/library/' + work['id'])['resume']['id'] == first['id']
+    assert api('/library/episodes/' + first['id'] + '/progress', 'POST', {'position': 1400, 'duration': 1440})['watched']
+    overview = api('/library')
+    assert overview['continueWatching'][0]['episode']['id'] == second['id'], overview['continueWatching']
+    assert next(s for s in overview['series'] if s['id'] == work['id'])['watchedCount'] == 1
+    marked = api('/library/' + work['id'] + '/watched', 'POST', {'watched': True})
+    assert all(e['watched'] for e in marked['episodes']) and marked['resume'] is None, marked
+    api('/library/episodes/' + second['id'] + '/watched', 'POST', {'watched': False})
+    assert api('/library/' + work['id'])['resume']['id'] == second['id']
+    api('/library/' + work['id'] + '/watched', 'POST', {'watched': False})
+
+    # Signed links open without the login cookie, support Range and HEAD, and reject tampering.
+    link = api('/library/episodes/' + first['id'] + '/link', 'POST')
+    assert link['url'].startswith('/media/') and link['url'].endswith(parse.quote('[Fixture] 测试番剧 - 01 [1080p].mkv')) and link['expiresAt'], link
+    with request.urlopen(request.Request(base + link['url'], headers={'Range': 'bytes=0-1'}), timeout=10) as anonymous:
+        assert anonymous.status == 206 and anonymous.read() == b'vi' and anonymous.headers['Content-Type'] == 'video/x-matroska'
+    with request.urlopen(request.Request(base + link['url'], method='HEAD'), timeout=10) as head:
+        assert head.status == 200 and head.headers['Content-Length'] == '5'
+    token = link['url'].split('/')[2]
+    for bad in ('/media/' + token[:-4] + ('AAAA' if not token.endswith('AAAA') else 'BBBB') + '/x.mkv', '/media/not-a-token/x.mkv', '/api/library/episodes/' + first['id'] + '/stream'):
+        try:
+            request.urlopen(base + bad, timeout=10)
+            raise AssertionError('unauthenticated media access: ' + bad)
+        except error.HTTPError as ex:
+            assert ex.code in (401, 404), (bad, ex.code)
+    playlist = api('/library/' + work['id'] + '/links', 'POST')
+    assert [e['episodeId'] for e in playlist['episodes']] == [e['id'] for e in detail['episodes']] and all(e['url'].startswith('/media/') for e in playlist['episodes']), playlist
+
+    # Search for a manual match lists Bangumi candidates with artwork.
+    found = api('/library/search?q=' + parse.quote('Search Show'))
+    assert found[0]['id'] == 9002 and found[0]['image'].endswith('/bgm/poster.png') and found[0]['episodes'] == 12 and found[0]['url'] == 'https://bgm.tv/subject/9002', found
+    api('/library/search?q=', expected=400)
+
+    # A video without a number: AI recognition, kept across scans, manual correction, reset.
+    touch('测试番剧/Season 1/测试番剧 最终回 [1080p].mkv')
+    api('/library/scan', 'POST')
+    detail = api('/library/' + work['id'])
+    unnumbered = next(e for e in detail['episodes'] if e['number'] is None)
+    assert detail['series']['unnumbered'] == 1 and not detail['aiAvailable'], detail['series']
+    api('/library/' + work['id'] + '/recognize', 'POST', expected=400)  # no AI configured
+    config = api('/state')['settings']
+    api('/settings', 'PUT', {**config, 'aiProfiles': [{'id': 'library-ai', 'name': 'AI', 'protocol': 'OpenAIChatCompletions', 'baseUrl': fixture, 'modelName': 'test', 'apiKey': 'test'}], 'selectedAiId': 'library-ai'})
+    recognized = api('/library/' + work['id'] + '/recognize', 'POST')
+    assert recognized['recognized'] == 1 and recognized['total'] == 1 and recognized['detail']['aiAvailable'], recognized
+    fixed = next(e for e in recognized['detail']['episodes'] if e['id'] == unnumbered['id'])
+    assert fixed['number'] == 3 and fixed['numberSource'] == 'ai', fixed
+    api('/library/' + work['id'] + '/recognize', 'POST', expected=400)  # nothing left to recognize
+    api('/library/scan', 'POST')
+    assert next(e for e in api('/library/' + work['id'])['episodes'] if e['id'] == unnumbered['id'])['number'] == 3
+    manual = api('/library/episodes/' + unnumbered['id'] + '/number', 'POST', {'number': 13, 'kind': 'Special'})
+    corrected = next(e for e in manual['episodes'] if e['id'] == unnumbered['id'])
+    assert corrected['number'] == 13 and corrected['kind'] == 'Special' and corrected['numberSource'] == 'manual', corrected
+    api('/library/episodes/' + unnumbered['id'] + '/number', 'POST', {'number': -2}, expected=400)
+    api('/library/episodes/' + unnumbered['id'] + '/number', 'POST', {'number': 1, 'kind': 'Movie'}, expected=400)
+    reset = api('/library/' + work['id'] + '/numbers', 'DELETE')
+    assert next(e for e in reset['episodes'] if e['id'] == unnumbered['id'])['number'] is None
+    api('/settings', 'PUT', {**api('/state')['settings'], 'aiProfiles': []})
+
+    # The public address used in notifications.
+    config = api('/state')['settings']
+    for invalid in ('https://media.example/?x=1', 'ftp://media.example', 'https://media.example/#play'):
+        api('/settings', 'PUT', {**config, 'publicUrl': invalid}, expected=400)
+    api('/settings', 'PUT', {**config, 'publicUrl': ' https://media.example/aria2/ '})
+    assert api('/state')['settings']['publicUrl'] == 'https://media.example/aria2'
+    api('/settings', 'PUT', {**config, 'publicUrl': ''})
+    print('PASS media playback: Range streaming, subtitles, progress, signed links, Bangumi search, AI and manual episode numbers')
+
+
 def main():
     global FEED_VERSION
     parser = argparse.ArgumentParser()
@@ -481,7 +594,7 @@ def main():
     args = parser.parse_args()
     base, fixture, api, cleanup, data = start_app(args.real_aria)
     if args.serve:
-        print(json.dumps({'base': base, 'fixture': fixture, 'password': PASSWORD}), flush=True)
+        print(json.dumps({'base': base, 'fixture': fixture, 'password': PASSWORD, 'data': data}), flush=True)
         try:
             sys.stdin.read()
         finally:
@@ -506,6 +619,7 @@ def main():
             assert hashlib.sha256(downloaded).digest() == hashlib.sha256(PAYLOAD).digest()
             api('/local/restart', 'POST')
             api('/nodes/local/test', 'POST')
+            check_play_link(api, fixture)
         else:
             api('/tasks/action', 'POST', {'action': 'pause', 'gids': [gid], 'nodeId': node})
             assert api('/tasks/' + gid + '?node=fixture')['status'] == 'paused'
@@ -610,7 +724,7 @@ def main():
             assert 'status-paused' not in TASKS and 'status-active' in TASKS
         if not args.real_aria:
             check_anime_sources(api, fixture, node)
-            check_library(api, fixture, data)
+            check_library(api, fixture, data, base)
         backup = api('/backup')
         assert api('/backup/import', 'POST', backup)['imported'] == 0
         api('/not-a-route', expected=404)
