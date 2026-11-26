@@ -46,6 +46,11 @@ module.exports=async(page,info,browser)=>{
   await page.locator('.library-hero h1',{hasText:'测试番剧中文名'}).waitFor();
   assert.deepEqual(await page.locator('.episode-row strong').allInnerTexts(),['第一集','第二集']);
   assert.match(await page.locator('.library-source').innerText(),/Bangumi #9001.*Mikan/);
+  // The 更多 menu opens over the panels below instead of being clipped by its own.
+  await page.locator('.library-actions .sub-more summary').click();
+  const more=await page.locator('.library-actions .sub-menu').boundingBox();
+  assert.equal(await page.evaluate(([x,y])=>!!document.elementFromPoint(x,y)?.closest('.sub-menu'),[more.x+more.width/2,more.y+more.height-4]),true);
+  await page.keyboard.press('Escape');
 
   // Manual match dialog: Bangumi search results with a choose button.
   await page.locator('#series-match').click();

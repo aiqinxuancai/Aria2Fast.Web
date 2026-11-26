@@ -119,3 +119,5 @@ a.button{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--l
 :root[data-theme=dark] .library-backdrop{opacity:.22}
 /* Long option texts must not widen form columns (390 px phones). */
 .form-grid>*{min-width:0}.form-grid select{width:100%;text-overflow:ellipsis}
+/* Pop-up menus (更多, 外部播放器) in the work page must not be clipped by their panels. */
+.library-hero,.episode-panel{overflow:visible}.library-backdrop{border-radius:inherit}
