@@ -75,6 +75,17 @@ public static class Validation
         if (!Regex.IsMatch(endpoint.Categories, @"^(\d{1,6}(,\d{1,6}){0,19})?$")) throw new ArgumentException("分类应为逗号分隔的数字，例如 5070");
     }
 
+    public static void Transcoding(LibrarySettings settings)
+    {
+        settings.FfmpegPath = settings.FfmpegPath?.Trim().Trim('"') ?? "";
+        if (settings.FfmpegPath.IndexOfAny(['\n', '\r', '\0']) >= 0) throw new ArgumentException("ffmpeg 路径无效");
+        if (!Services.FfmpegService.Encoders.Contains(settings.VideoEncoder)) throw new ArgumentException("不支持的视频编码器");
+        if (settings.MaxHeight is not (0 or 480 or 720 or 1080 or 1440 or 2160)) throw new ArgumentException("转码分辨率无效");
+        if (settings.MaxTranscodes is < 1 or > 8) throw new ArgumentException("同时转码数应在 1 至 8 之间");
+        settings.VaapiDevice = string.IsNullOrWhiteSpace(settings.VaapiDevice) ? "/dev/dri/renderD128" : settings.VaapiDevice.Trim();
+        if (!settings.VaapiDevice.StartsWith("/dev/", StringComparison.Ordinal) || settings.VaapiDevice.Contains("..")) throw new ArgumentException("VAAPI 设备应为 /dev/ 下的路径");
+    }
+
     public static string LocalFile(string root, string path)
     {
         var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;

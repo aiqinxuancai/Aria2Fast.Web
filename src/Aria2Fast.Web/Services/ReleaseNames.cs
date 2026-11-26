@@ -48,6 +48,21 @@ public static partial class ReleaseNames
     }
 
     /// <summary>Work title from a folder name such as "[Group] Title [01-12][1080p]" or "作品 第二季".</summary>
+    /// <summary>
+    /// A movie's title and year from its folder or file name: "Inception (2010)", "Inception.2010.1080p.BluRay",
+    /// "[Group] 你的名字 [2016][1080p]". The rightmost year wins, so "Blade Runner 2049 (2017)" keeps 2049 in the title.
+    /// </summary>
+    public static (string Title, int? Year) Movie(string name)
+    {
+        var body = StripGroup(Normalize(name));
+        if (MovieYear().Matches(body).LastOrDefault(m => m.Index > 0) is { } year)
+        {
+            var title = Title(body[..year.Index].TrimEnd(' ', '-', '(', '[', '.'));
+            if (title.Length > 0) return (title, int.Parse(year.Groups[1].Value));
+        }
+        return (Title(name), null);
+    }
+
     public static string Title(string name)
     {
         var text = Normalize(name);
@@ -178,4 +193,5 @@ public static partial class ReleaseNames
     [GeneratedRegex(@"^(?:Season\s?(\d{1,3})|S(\d{1,2})|第\s*(\d{1,2}|[一二三四五六七八九十]{1,3})\s*[季期])$", RegexOptions.IgnoreCase)] private static partial Regex SeasonFolderName();
     [GeneratedRegex(@"^(?:SPs?|Specials?|OVAs?|OADs?|特典|映像特典|番外|特别篇|特別篇|Season\s?0+)$", RegexOptions.IgnoreCase)] private static partial Regex SpecialFolderName();
     [GeneratedRegex(@"^(?:Extras?|Bonus|NC(?:OP|ED)?s?|Menus?|CDs?|Scans?|PVs?|CMs?|Trailers?|Others?|Featurettes?)$", RegexOptions.IgnoreCase)] private static partial Regex ExtraFolderName();
+    [GeneratedRegex(@"(?:^|[\s\[(.])((?:19|20)\d{2})(?=$|[\s\]).])")] private static partial Regex MovieYear();
 }

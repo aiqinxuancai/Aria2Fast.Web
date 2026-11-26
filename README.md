@@ -24,7 +24,7 @@
 - 🔍 **发现新番**：按季度、星期浏览 Mikan 新番，显示热度和更新集数，可接入 TMDB 评分。
 - 🌐 **多源搜索补源**：一次搜索 ACG.RIP、Nyaa、动漫花园、末日动漫，还能接入 Prowlarr / Jackett 覆盖更多公开站和 PT 站；搜索结果可直接下载，或一键转为订阅。
 - 🤖 **AI 帮你挑番、整理文件**：AI 搜索资料写出番剧评析、翻译简介、按作品自动分文件夹、整理已下载文件的名称。支持 OpenAI、Claude、Gemini 及其兼容接口。
-- 🎬 **媒体库与播放**：下载完成的番剧自动整理成海报墙，从 Bangumi 获取海报、简介和分集标题；浏览器里直接播放，记住进度、自动下一集，支持外挂 ASS / SRT 字幕，也能一键用 PotPlayer、IINA、Infuse、VLC 等本机播放器打开。
+- 🎬 **媒体库与播放**：下载完成的番剧、剧集和电影自动整理成海报墙（目录可自行添加），从 Bangumi / TMDB 获取海报、简介和分集标题，匹配不到时可让 AI 搜索识别；浏览器里直接播放，记住进度、自动下一集，支持外挂 ASS / SRT 字幕，也能一键用 PotPlayer、IINA、Infuse、VLC 等本机播放器打开。服务器装有 ffmpeg 时，浏览器放不了的 HEVC、MKV 会自动转封装或转码，还能切换音轨、显示内封字幕、烧录 ASS 特效字幕。
 - 🔔 **下载完成提醒**：通过 PushDeer 或 Bark 推送到手机，填写访问地址后可点通知直接播放。
 - 📱 **手机也好用**：响应式布局加底部导航，浅色/深色主题可跟随系统；已完成的文件可以直接用浏览器取回。
 - 📦 **开箱即用**：Docker 一条命令部署；Windows 和 macOS 解压就能运行，已内置 aria2。
@@ -87,6 +87,8 @@ docker compose up -d
 
 想把文件直接下载到宿主机目录、指定镜像版本或从源码构建，请看 [部署与配置](docs/DEPLOYMENT.md)。
 
+想在网页里播放浏览器不支持的 HEVC / MKV 视频，把镜像换成带 ffmpeg 的 `ghcr.io/aiqinxuancai/aria2fast.web:latest-ffmpeg`；使用 Intel / AMD / NVIDIA 显卡转码的配置见 [媒体库 · Docker 与显卡](docs/MEDIA-LIBRARY.md#docker-与显卡)。
+
 ### Windows / macOS
 
 1. 在 [Releases](https://github.com/aiqinxuancai/Aria2Fast.Web/releases) 下载对应平台的压缩包，解压到任意可写目录。
@@ -104,7 +106,7 @@ docker compose up -d
 1. **修改密码**：登录后在「设置中心」修改初始密码。
 2. **添加下载**：点右上角「新建任务」，粘贴链接或磁力链接，也可以上传种子文件。
 3. **订阅番剧**：在「发现番剧」中打开作品，选择字幕组点「订阅」；也可以在「我的订阅」添加任意 RSS 地址。
-4. **观看**：下载完成的视频出现在「媒体库」，点开作品即可播放。浏览器放不了的格式（常见于 HEVC / MKV）可以用「外部播放器」打开，详见 [媒体库](docs/MEDIA-LIBRARY.md)。
+4. **观看**：下载完成的视频出现在「媒体库」，点开作品即可播放。浏览器放不了的格式（常见于 HEVC / MKV）可以安装 ffmpeg 让服务器转码，或用「外部播放器」打开，详见 [媒体库](docs/MEDIA-LIBRARY.md)。
 5. **连接更多 Aria2**：在「设置中心」添加远程 Aria2 的 RPC 地址和密钥，之后在右上角切换节点。
 6. **可选增强**：在设置中填写 AI 服务、TMDB、搜索服务或推送的 Key，即可开启对应功能。AI 评析的原理和配置见 [番剧调查与评析](docs/AI-RESEARCH.md)。
 
@@ -143,7 +145,7 @@ docker compose up -d
 - [部署与配置](docs/DEPLOYMENT.md)：Docker 进阶、环境变量、下载调优、网络设置、资源搜索源
 - [桌面集成](docs/DESKTOP.md)：开机自启、桌面快捷方式、端口占用处理
 - [番剧调查与评析](docs/AI-RESEARCH.md)：AI 评析的工作方式与搜索服务配置
-- [媒体库](docs/MEDIA-LIBRARY.md)：海报墙、在线播放与进度、字幕、外部播放器、集数识别与修正
+- [媒体库](docs/MEDIA-LIBRARY.md)：海报墙、在线播放与进度、字幕、外部播放器、ffmpeg 转封装 / 转码、集数识别与修正
 - [功能说明](docs/FEATURES.md)：与桌面版的功能对照
 - [开发与发布](docs/DEVELOPMENT.md)：源码运行、测试、构建与发布流程
 

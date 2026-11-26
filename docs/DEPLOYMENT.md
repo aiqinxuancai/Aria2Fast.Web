@@ -13,11 +13,13 @@
 
 **指定镜像版本**：将 `.env` 中的 `ARIA2FAST_IMAGE` 设置为 `ghcr.io/<用户名>/<仓库名>:v1.0.0`（仓库名必须小写），再执行 `docker compose pull` 和 `docker compose up -d --no-build`。
 
+**带 ffmpeg 的镜像**：媒体库要转码播放浏览器不支持的视频时，把 `ARIA2FAST_IMAGE` 设置为 `ghcr.io/<用户名>/<仓库名>:latest-ffmpeg`（或 `v1.0.0-ffmpeg`）。它另外包含 ffmpeg 和 VAAPI 驱动；用显卡转码需要把 `/dev/dri` 或 NVIDIA GPU 开放给容器，仓库提供了 `compose.vaapi.yaml` 和 `compose.nvidia.yaml`，用法见 [媒体库 · Docker 与显卡](MEDIA-LIBRARY.md#docker-与显卡)。
+
 **从源码构建**：在含 Dockerfile 的完整项目根目录执行：
 
     docker compose -f compose.yaml -f compose.build.yaml up -d --build
 
-本地构建配置单独放在 `compose.build.yaml`，使用镜像部署时不要启用这个覆盖文件。旧版配置请移除 `build: .`；如果还有 `pull_policy: build` 也应移除，否则管理器可能跳过拉取，尝试本地构建。
+构建带 ffmpeg 的镜像时，在命令前加上 `ARIA2FAST_WITH_FFMPEG=true`。本地构建配置单独放在 `compose.build.yaml`，使用镜像部署时不要启用这个覆盖文件。旧版配置请移除 `build: .`；如果还有 `pull_policy: build` 也应移除，否则管理器可能跳过拉取，尝试本地构建。
 
 ### 数据与下载目录
 

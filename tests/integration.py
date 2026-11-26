@@ -174,7 +174,7 @@ class Fixtures(BaseHTTPRequestHandler):
             return self.reply({'code': PUSH_CODES['bark']})
         if self.path.startswith('/bgm/v0/search/subjects'):
             BGM_AGENTS.append(self.headers.get('User-Agent', ''))
-            found = 'Search Show' in body.get('keyword', '') and body.get('filter', {}).get('type') == [2]
+            found = 'Search Show' in body.get('keyword', '') and 2 in body.get('filter', {}).get('type', [])
             data = [{'id': 9002, 'name': 'Search Show', 'name_cn': '', 'date': '2026-10-01', 'infobox': [], 'eps': 12, 'images': {'common': f'http://127.0.0.1:{self.server.server_port}/bgm/poster.png'}}] if found else [{'id': 1, 'name': 'Unrelated', 'name_cn': '无关作品', 'infobox': []}]
             return self.reply({'data': data, 'total': len(data)})
         if self.path.startswith('/invalid/'):
@@ -183,6 +183,17 @@ class Fixtures(BaseHTTPRequestHandler):
         ai_text = '连接成功'
         if '番剧调查 Agent' in json.dumps(body, ensure_ascii=False):
             ai_text = json.dumps({'action': 'finish', 'score': None, 'overview': '作品概况', 'originalWork': '原作资料尚未核实', 'adaptation': '改编资料尚未核实', 'review': '测试评析', 'recommendation': '建议参考官方信息', 'caveats': '未联网核实'}, ensure_ascii=False)
+        if '媒体库刮削 Agent' in json.dumps(body, ensure_ascii=False):
+            # Library AI scraping, scripted by folder name: look up Bangumi then finish, assemble from the web, or give up.
+            prompt = next(json.loads(m['content']) for m in body.get('messages', []) if m.get('role') == 'user')
+            folder, seen = prompt['target']['folder'], prompt['observations']
+            if 'AI 作品' in folder:
+                action = {'action': 'bangumi_search', 'keyword': 'Search Show'} if not seen else {'action': 'finish', 'source': 'bangumi', 'id': 9002, 'confidence': 'high', 'reason': '罗马字名对应'}
+            elif '网页作品' in folder:
+                action = {'action': 'finish', 'source': 'none', 'confidence': 'medium', 'title': '网页作品中文名', 'originalTitle': 'Web Movie', 'date': '2020-05-01', 'summary': '根据网页整理的简介'}
+            else:
+                action = {'action': 'finish', 'source': 'none', 'confidence': 'low', 'reason': '同名作品太多'}
+            ai_text = json.dumps(action, ensure_ascii=False)
         if '判断每个视频文件是第几集' in json.dumps(body, ensure_ascii=False):
             # Media library episode recognition: every listed file becomes episode 3.
             prompt = next(json.loads(m['content']) for m in body.get('messages', []) if m.get('role') == 'user')
@@ -479,6 +490,162 @@ def check_library(api, fixture, data, base):
     print('PASS media library: subscription folders, Mikan -> Bangumi, search fallback, posters, manual match, settings validation')
 
 
+def check_categories(api, fixture, data):
+    """Library folders and categories, AI scraping with a scripted model (manual and automatic), search provider settings."""
+    downloads, external = Path(data) / 'downloads', Path(data) / 'external-movies'
+
+    def touch(path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b'video')
+
+    def wait(predicate, what):
+        for _ in range(150):
+            value = predicate()
+            if value:
+                return value
+            time.sleep(.2)
+        raise AssertionError('timed out waiting for ' + what)
+
+    config = api('/state')['settings']
+    library = config['library']
+    assert config['searchProvider'] == 'keenable' and config['keenableApiKey'] == '', config['searchProvider']
+    for invalid in ('google', 'bing'):
+        api('/settings', 'PUT', {**config, 'searchProvider': invalid}, expected=400)
+    assert [(f['id'], f['path'], f['category']) for f in library['folders']] == [('downloads', '', 'Anime'), ('tvshows', 'tvshows', 'Series'), ('movies', 'movies', 'Movie')], library['folders']
+    api('/settings', 'PUT', {**config, 'library': {**library, 'folders': library['folders'] + [{'id': '', 'path': str(downloads / 'movies'), 'category': 'Movie'}]}}, expected=400)
+    api('/settings', 'PUT', {**config, 'library': {**library, 'folders': library['folders'] + [{'id': '', 'path': 'x', 'category': 'Music'}]}}, expected=400)
+    api('/settings', 'PUT', {**config, 'library': {**library, 'aiScrape': False, 'folders': library['folders'] + [{'id': '', 'path': str(external), 'category': 'Movie'}]}})
+    folders = api('/state')['settings']['library']['folders']
+    outside = folders[3]['id']
+    assert outside.startswith('f') and folders[3]['path'] == str(external) and folders[3]['category'] == 'Movie', folders
+
+    touch(downloads / 'tvshows' / 'AI 作品' / 'Season 1' / 'AI.Show.S01E02.1080p.mkv')
+    touch(downloads / 'movies' / '网页作品 (2020)' / 'Web.Movie.2020.1080p.mkv')
+    touch(external / 'Some Film (1999)' / 'film.mkv')
+    api('/library/scan', 'POST')
+    wait(lambda: all(s['status'] != 'Pending' for s in api('/library')['series']), 'metadata')
+    works = {s['folderTitle']: s for s in api('/library')['series']}
+    show, movie, film = works['AI 作品'], works['网页作品'], works['Some Film']
+    assert show['category'] == 'Series' and show['folderId'] == 'tvshows' and show['season'] == 1 and show['latestEpisode'] == 2, show
+    assert movie['category'] == 'Movie' and movie['year'] == 2020 and movie['episodeCount'] == 1, movie
+    assert film['folderId'] == outside and film['directory'] == '@' + outside + '/Some Film (1999)' and film['year'] == 1999, film
+    assert all(w['status'] == 'Unmatched' for w in (show, movie, film)), [(w['folderTitle'], w['status']) for w in (show, movie, film)]
+    assert not any(w['folderTitle'] in ('tvshows', 'movies') for w in works.values())  # not anime works in the download root
+    # A video outside the download directory plays and links like any other.
+    episode = api('/library/' + film['id'])['episodes'][0]
+    content, _ = api('/library/episodes/' + episode['id'] + '/stream', raw=True, headers={'Range': 'bytes=0-1'}, expected=206)
+    assert episode['path'].startswith('@' + outside + '/') and content == b'vi', episode
+
+    # AI scraping needs an AI service; the scripted fixture model answers per folder.
+    api('/library/' + show['id'] + '/ai-scrape', 'POST', expected=400)
+    config = api('/state')['settings']
+    api('/settings', 'PUT', {**config, 'aiProfiles': [{'id': 'scrape-ai', 'name': 'AI', 'protocol': 'OpenAIChatCompletions', 'baseUrl': fixture, 'modelName': 'test', 'apiKey': 'test'}], 'selectedAiId': 'scrape-ai'})
+
+    def scrape(work):
+        assert api('/library/' + work['id'] + '/ai-scrape', 'POST')['state'] == 'running'
+        return wait(lambda: (lambda d: d if d['aiScrape'] and d['aiScrape']['state'] != 'running' else None)(api('/library/' + work['id'])), 'AI scraping')
+
+    found = scrape(show)
+    assert found['aiScrape']['state'] == 'succeeded' and found['series']['bgmId'] == 9002 and found['series']['matchedBy'] == 'Ai' and found['metadata']['source'] == 'bangumi', found
+    assembled = scrape(movie)
+    meta = assembled['metadata']
+    assert assembled['series']['matchedBy'] == 'Ai' and assembled['series']['title'] == '网页作品中文名' and meta['source'] == 'ai' and meta['summary'] == '根据网页整理的简介' and meta['airDate'] == '2020-05-01', assembled
+    unsure = scrape(film)
+    assert unsure['aiScrape']['state'] == 'failed' and '同名作品太多' in unsure['aiScrape']['message'] and unsure['series']['status'] == 'Unmatched', unsure
+    # Automatic: an unmatched work gets one AI attempt after normal matching; the reason lands in its error.
+    config = api('/state')['settings']
+    api('/settings', 'PUT', {**config, 'library': {**config['library'], 'aiScrape': True}})
+    api('/library/scan', 'POST')
+    wait(lambda: '同名作品太多' in (next(s for s in api('/library')['series'] if s['id'] == film['id'])['error'] or ''), 'automatic AI scraping')
+    assert api('/library')['series'] and next(s for s in api('/library')['series'] if s['id'] == show['id'])['matchedBy'] == 'Ai'  # kept across scans
+
+    config = api('/state')['settings']
+    api('/settings', 'PUT', {**config, 'aiProfiles': [], 'searchProvider': 'none', 'library': {**config['library'], 'folders': library['folders']}})
+    assert api('/state')['settings']['searchProvider'] == 'none'
+    api('/settings', 'PUT', {**api('/state')['settings'], 'searchProvider': 'keenable'})
+    api('/library/scan', 'POST')
+    assert not any(s['folderId'] == outside for s in api('/library')['series'])
+    print('PASS media categories: library folders, series / movie grouping, outside folders, AI scraping (Bangumi ID, web metadata, unsure, automatic)')
+
+
+def check_transcoding(api, data):
+    """Third phase with a real ffmpeg (skipped without one): probing, embedded subtitles, remux and transcode HLS with seeking, burn-in."""
+    import media_fixtures
+    found = media_fixtures.tools()
+    config = api('/state')['settings']
+    if not found:
+        assert api('/library/ffmpeg')['available'] is False
+        print('SKIP media transcoding: ffmpeg / ffprobe not found (set TEST_FFMPEG to their folder)')
+        return
+    ffmpeg, ffprobe = found
+    api('/settings', 'PUT', {**config, 'library': {**config['library'], 'ffmpegPath': str(Path(ffmpeg).parent), 'maxHeight': 720}})
+    status = api('/library/ffmpeg?refresh=true')
+    assert status['available'] and 'libx264' in status['encoders'] and status['version'].startswith('ffmpeg'), status
+    assert api('/library/ffmpeg/test', 'POST', {'encoder': 'libx264'})['seconds'] > 0
+    api('/library/ffmpeg/test', 'POST', {'encoder': 'libx265'}, expected=400)
+    made = media_fixtures.make(ffmpeg, Path(data) / 'downloads')
+    api('/library/scan', 'POST')
+    episodes = {}
+    for series in api('/library')['series']:
+        for episode in api('/library/' + series['id'])['episodes']:
+            episodes[episode['name']] = episode['id']
+    h264, hevc = episodes[made['h264'].name], episodes[made['hevc'].name]
+
+    media = api('/library/episodes/' + h264 + '/media')
+    info = media['info']
+    assert media['available'] and media['maxHeight'] == 720 and info['container'] == 'mkv' and abs(info['duration'] - 12) < 0.2, media
+    assert info['video']['codec'] == 'h264' and info['video']['codecString'] == 'avc1.42E01F' and info['video']['height'] == 720, info['video']
+    assert info['audio'][0]['codec'] == 'aac' and info['audio'][0]['codecString'] == 'mp4a.40.2', info['audio']
+    subtitle = info['subtitles'][0]
+    assert subtitle['text'] and subtitle['styled'] and subtitle['label'] == '简体中文' and len(info['fonts']) == 1, info
+    vtt = api('/library/episodes/' + h264 + '/subtitles/embedded/' + str(subtitle['index']), raw=True)[0].decode()
+    assert vtt.startswith('WEBVTT') and '00:00:00.500 --> 00:00:11.500 line:0\n内封字幕测试\n第二行' in vtt, vtt
+    api('/library/episodes/' + h264 + '/subtitles/embedded/99', expected=404)
+    other = api('/library/episodes/' + hevc + '/media')['info']
+    assert other['video']['codecString'] == 'hvc1.2.4.L' + str(other['video']['level']) + '.B0' and other['video']['bitDepth'] == 10 and other['audio'][0]['codec'] == 'flac', other
+
+    def fetch(session, name):
+        return api(session['playlist'].removeprefix('/api').replace('index.m3u8', name), raw=True)[0]
+
+    # Remux: one segment per GOP; asking for a later segment first restarts ffmpeg there, and its timestamps match the playlist.
+    copy = api('/library/episodes/' + h264 + '/hls', 'POST', {'mode': 'copy'})
+    playlist = fetch(copy, 'index.m3u8').decode()
+    assert copy['segments'] == 6 and copy['encoder'] == 'copy' and copy['audioCopy'] and playlist.count('#EXTINF:2.0') == 6 and '#EXT-X-ENDLIST' in playlist, (copy, playlist)
+    later = fetch(copy, '4.m4s')
+    init = fetch(copy, 'init.mp4')
+    assert init[4:8] == b'ftyp' and {'avc1', 'mp4a'} <= media_fixtures.codecs(init), media_fixtures.codecs(init)
+    starts = media_fixtures.start_times(init, later)
+    assert starts and all(abs(t - 8.0) < 0.1 for t in starts.values()), starts
+    first = media_fixtures.start_times(init, fetch(copy, '0.m4s'))
+    assert all(abs(t) < 0.1 for t in first.values()), first
+    api(copy['playlist'].removeprefix('/api').replace('index.m3u8', '6.m4s'), expected=404)
+
+    # Transcode HEVC 10-bit to H.264 at the 720p limit, starting in the middle.
+    encode = api('/library/episodes/' + hevc + '/hls', 'POST', {'mode': 'transcode', 'height': 480})
+    assert encode['segments'] == 3 and encode['height'] == 480 and encode['encoder'] == 'libx264', encode
+    middle = fetch(encode, '2.m4s')
+    init = fetch(encode, 'init.mp4')
+    assert 'avc1' in media_fixtures.codecs(init) and 'mp4a' in media_fixtures.codecs(init), media_fixtures.codecs(init)
+    assert all(abs(t - 8.0) < 0.15 for t in media_fixtures.start_times(init, middle).values()), media_fixtures.start_times(init, middle)
+    remux_hevc = api('/library/episodes/' + hevc + '/hls', 'POST', {'mode': 'copy'})
+    assert 'hvc1' in media_fixtures.codecs(fetch(remux_hevc, 'init.mp4'))  # Safari needs the hvc1 sample entry
+
+    # Burning in the embedded ASS (with its font) and the failure paths.
+    burned = api('/library/episodes/' + h264 + '/hls', 'POST', {'mode': 'transcode', 'burn': 'embedded:' + str(subtitle['index'])})
+    assert len(fetch(burned, '1.m4s')) > 1000
+    api('/library/episodes/' + h264 + '/hls', 'POST', {'mode': 'copy', 'burn': 'embedded:' + str(subtitle['index'])}, expected=400)
+    api('/library/episodes/' + h264 + '/hls', 'POST', {'mode': 'stream'}, expected=400)
+    api('/library/episodes/' + h264 + '/hls', 'POST', {'mode': 'transcode', 'audio': 42}, expected=400)
+    for session in (copy, encode, remux_hevc, burned):
+        api(session['playlist'].removeprefix('/api').replace('/index.m3u8', ''), 'DELETE')
+    api(copy['playlist'].removeprefix('/api'), expected=404)
+    api('/settings', 'PUT', {**api('/state')['settings'], 'library': {**api('/state')['settings']['library'], 'transcoding': False}})
+    assert api('/library/episodes/' + h264 + '/media')['available'] is False
+    api('/library/episodes/' + h264 + '/hls', 'POST', {'mode': 'copy'}, expected=400)
+    api('/settings', 'PUT', config)
+    print('PASS media transcoding: ffprobe details, embedded subtitles, remux and transcode HLS with seeking, hvc1 tagging, burn-in')
+
+
 def check_play_link(api, fixture):
     """A finished local video notifies with a link to its player page. Needs real aria2: the fixture node is remote."""
     config = api('/state')['settings']
@@ -725,6 +892,8 @@ def main():
         if not args.real_aria:
             check_anime_sources(api, fixture, node)
             check_library(api, fixture, data, base)
+            check_categories(api, fixture, data)
+            check_transcoding(api, data)
         backup = api('/backup')
         assert api('/backup/import', 'POST', backup)['imported'] == 0
         api('/not-a-route', expected=404)

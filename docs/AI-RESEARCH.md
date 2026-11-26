@@ -1,6 +1,6 @@
 # 番剧调查与评析
 
-在「设置中心 → AI 与智能功能」配置 AI 接口，以及至少一种搜索服务的 API Key：Brave Search、Serper、SerpApi 或 Tavily。模型可选择服务；默认依次尝试 Brave、Serper、SerpApi、Tavily，遇到错误或空结果自动回退到其他已配置服务。各服务均使用网页搜索，适合调查作品、原作、出版社与制作团队。
+在「设置中心 → AI 与智能功能」配置 AI 接口。网络搜索默认使用 [Keenable](https://keenable.ai)：不填 Key 时走它的免费接口（只发送检索词，并按其要求附上应用名「Aria2Fast.Web」，请求次数有限制），填写 Keenable API Key 可提高额度。也可以在「AI 网络搜索」中改选 Brave Search、Serper、SerpApi 或 Tavily（需要填写各自的 Key），或选择「不使用网络搜索」。所选服务优先，遇到错误或空结果自动回退到其他可用服务。各服务均使用网页搜索，适合调查作品、原作、出版社与制作团队。媒体库的 AI 刮削使用同一套搜索设置。
 
 番剧详情的「调查并评析」会核对作品身份，调查原作与改编信息，整理作品概况、原作信息、动画与改编、综合评析、观看建议以及待核实事项。来源以编号和可点击链接显示。推荐分是 AI 的主观判断，不是 TMDB 或其他网站评分；没有取得外部证据时不评分。没有配置搜索服务时仍可生成基于简介的有限总结，并明确标记未检索。
 
@@ -26,6 +26,6 @@
 
 ## 验证
 
-`dotnet run --project tests/Aria2Fast.Web.Tests -c Release` 覆盖调查循环、按结果追问、抓取、引用校验、预算、取消、四个搜索服务请求格式及回退、抓取地址限制和持久化。
+`dotnet run --project tests/Aria2Fast.Web.Tests -c Release` 覆盖调查循环、按结果追问、抓取、引用校验、预算、取消、五个搜索服务（含 Keenable 免费接口与带 Key 接口）的请求格式及回退、抓取地址限制和持久化。
 
 `python tests/integration.py` 使用本地 AI fixtures 验证四种协议的评析生成、缓存读取与刷新失败保留。`node tests/browser/smoke.cjs` 验证调查按钮状态、分项内容、安全来源链接和错误后的旧评析展示。搜索 API 使用模拟响应测试，不消耗真实密钥额度。

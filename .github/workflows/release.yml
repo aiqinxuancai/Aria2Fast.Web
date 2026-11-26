@@ -126,6 +126,31 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: true
           sbom: true
+      # Same image plus ffmpeg and VAAPI drivers, tagged latest-ffmpeg / x.y.z-ffmpeg, for media library transcoding.
+      - uses: docker/metadata-action@v5
+        id: meta-ffmpeg
+        with:
+          images: ${{ steps.image.outputs.name }}
+          flavor: |
+            latest=false
+            suffix=-ffmpeg
+          tags: |
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: WITH_FFMPEG=true
+          tags: ${{ steps.meta-ffmpeg.outputs.tags }}
+          labels: ${{ steps.meta-ffmpeg.outputs.labels }}
+          cache-from: type=gha,scope=ffmpeg
+          cache-to: type=gha,mode=max,scope=ffmpeg
+          provenance: true
+          sbom: true
   release:
     needs: [binaries, image]
     runs-on: ubuntu-latest

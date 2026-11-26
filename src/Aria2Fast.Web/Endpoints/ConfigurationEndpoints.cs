@@ -22,6 +22,10 @@ public static class ConfigurationEndpoints
             if (input.Library.ScanIntervalMinutes is < 5 or > 1440) throw new ArgumentException("媒体库扫描间隔应在 5 至 1440 分钟之间");
             input.Library.BangumiApiUrl = string.IsNullOrWhiteSpace(input.Library.BangumiApiUrl) ? LibrarySettings.DefaultBangumiApiUrl : input.Library.BangumiApiUrl.Trim();
             Validation.HttpUrl(input.Library.BangumiApiUrl);
+            Validation.Transcoding(input.Library);
+            input.SearchProvider = string.IsNullOrWhiteSpace(input.SearchProvider) ? "keenable" : input.SearchProvider.Trim().ToLowerInvariant();
+            if (input.SearchProvider != "none" && !ResearchSearchTools.All.Contains(input.SearchProvider)) throw new ArgumentException("不支持的网络搜索服务");
+            input.KeenableApiKey = input.KeenableApiKey?.Trim() ?? "";
             input.MikanFallbackUrl = input.MikanFallbackUrl?.Trim() ?? "";
             if (input.MikanFallbackUrl.Length > 0) Validation.HttpUrl(input.MikanFallbackUrl);
             Validation.HttpUrl(input.MikanBaseUrl); Validation.HttpUrl(input.PushEndpoint);
@@ -40,6 +44,7 @@ public static class ConfigurationEndpoints
             Validation.AnimeSources(input.AnimeSources);
             if (string.IsNullOrWhiteSpace(input.DownloadDirectory) || input.DownloadDirectory.Contains('\n') || input.DownloadDirectory.Contains('\r')) throw new ArgumentException("下载目录无效");
             input.DownloadDirectory = Path.GetFullPath(input.DownloadDirectory);
+            LibraryFolders.Validate(input.Library, input.DownloadDirectory);
             foreach (var profile in input.AiProfiles) { Validation.HttpUrl(profile.BaseUrl); if (string.IsNullOrWhiteSpace(profile.ModelName)) throw new ArgumentException("模型名称不能为空"); }
             var tuning = input.LocalOptions.Where(x => LocalAriaOptions.Defaults.ContainsKey(x.Key)).ToDictionary();
             input.LocalOptions = tuning;

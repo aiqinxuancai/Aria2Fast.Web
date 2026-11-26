@@ -16,4 +16,24 @@ module.exports=async(page,fixture)=>{
   assert.equal(await page.locator('[name=libraryScanIntervalMinutes]').inputValue(),'30');
   assert.equal(await page.locator('[name=libraryBangumiApiUrl]').inputValue(),fixture+'/bgm');
   await status.filter({hasText:'上次扫描'}).waitFor();
+
+  // Library folders: the three defaults, adding one, and the web search choice.
+  const rows=page.locator('#library-folders .folder-row');
+  assert.equal(await rows.count(),3);
+  assert.deepEqual(await rows.locator('.folder-category').evaluateAll(list=>list.map(s=>s.value)),['Anime','Series','Movie']);
+  assert.equal(await rows.nth(1).locator('.folder-path').inputValue(),'tvshows');
+  assert.equal(await page.locator('[name=searchProvider]').inputValue(),'keenable');
+  await page.locator('#add-folder').click();
+  await rows.nth(3).locator('.folder-path').fill('documentaries');
+  await rows.nth(3).locator('.folder-category').selectOption('Series');
+  await page.locator('#settings-form [type=submit]').click();
+  await page.locator('.toast',{hasText:'设置已保存'}).waitFor();
+  await page.reload();
+  await rows.nth(3).waitFor();
+  assert.equal(await rows.nth(3).locator('.folder-path').inputValue(),'documentaries');
+  assert.match(await rows.nth(3).getAttribute('data-folder'),/^f[0-9a-f]{8}$/);
+  await rows.nth(3).locator('[data-remove-folder]').click();
+  assert.equal(await rows.count(),3);
+  await page.locator('#settings-form [type=submit]').click();
+  await page.locator('.toast',{hasText:'设置已保存'}).last().waitFor();
 };

@@ -1,0 +1,12 @@
+# Intel / AMD hardware transcoding (VAAPI) for the media library:
+#   RENDER_GID=$(stat -c %g /dev/dri/renderD128) docker compose -f compose.yaml -f compose.vaapi.yaml up -d
+# Then choose "VAAPI" in Settings → 媒体库 → 转码 and press "测试编码器".
+services:
+  aria2fast:
+    # The image variant with ffmpeg and VAAPI drivers.
+    image: ${ARIA2FAST_IMAGE:-ghcr.io/aiqinxuancai/aria2fast.web:latest-ffmpeg}
+    devices:
+      - /dev/dri:/dev/dri
+    # The container runs as a non-root user; it needs the group that owns the render device on the host.
+    group_add:
+      - "${RENDER_GID:?set RENDER_GID to the group ID of /dev/dri/renderD128, e.g. RENDER_GID=$(stat -c %g /dev/dri/renderD128)}"

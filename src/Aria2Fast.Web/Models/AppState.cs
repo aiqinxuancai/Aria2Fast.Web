@@ -38,6 +38,10 @@ public sealed class WebSettings
     private AnimeSourcesSettings animeSources = new();
     public string TmdbApiKey { get; set; } = "";
     public string TavilyApiKey { get; set; } = "";
+    /// <summary>Optional: without it Keenable's free keyless endpoint is used (with a lower rate limit).</summary>
+    public string KeenableApiKey { get; set; } = "";
+    /// <summary>Web search tried first by the AI agents: keenable, brave, serper, serpapi, tavily, or none to switch searching off.</summary>
+    public string SearchProvider { get; set; } = "keenable";
     public string BraveApiKey { get; set; } = "";
     public string SerperApiKey { get; set; } = "";
     public string SerpApiKey { get; set; } = "";
@@ -70,6 +74,17 @@ public sealed class OssSettings
     public string ObjectKey { get; set; } = "aria2fast-web/subscriptions.json";
 }
 
+/// <summary>Anime matches Bangumi first; series (TV dramas) and movies match TMDB first when a key is set.</summary>
+public enum LibraryCategory { Anime, Series, Movie }
+
+public sealed class LibraryFolder
+{
+    /// <summary>Stable short name; videos outside the download directory are stored as "@{Id}/relative path".</summary>
+    public string Id { get; set; } = "";
+    public string Path { get; set; } = "";
+    public LibraryCategory Category { get; set; }
+}
+
 public sealed class LibrarySettings
 {
     public const string DefaultBangumiApiUrl = "https://api.bgm.tv";
@@ -78,6 +93,32 @@ public sealed class LibrarySettings
     public int ScanIntervalMinutes { get; set; } = 60;
     /// <summary>Bangumi API root, or a mirror / reverse proxy of it.</summary>
     public string BangumiApiUrl { get; set; } = DefaultBangumiApiUrl;
+    /// <summary>
+    /// Folders the library indexes, each with a category. Relative paths (and the empty path) are inside the download directory,
+    /// so the defaults are the download directory itself for anime plus its tvshows and movies folders.
+    /// </summary>
+    public List<LibraryFolder> Folders { get => folders; set => folders = value ?? DefaultFolders(); }
+    private List<LibraryFolder> folders = DefaultFolders();
+    public static List<LibraryFolder> DefaultFolders() =>
+    [
+        new() { Id = "downloads", Path = "", Category = LibraryCategory.Anime },
+        new() { Id = "tvshows", Path = "tvshows", Category = LibraryCategory.Series },
+        new() { Id = "movies", Path = "movies", Category = LibraryCategory.Movie }
+    ];
+    /// <summary>When normal matching finds nothing, let the AI agent identify the work (each work once; needs an AI service).</summary>
+    public bool AiScrape { get; set; } = true;
+    /// <summary>Use ffmpeg (when found) to remux or transcode videos the browser cannot play directly.</summary>
+    public bool Transcoding { get; set; } = true;
+    /// <summary>ffmpeg executable or the folder holding ffmpeg and ffprobe; empty searches the application folder and PATH.</summary>
+    public string FfmpegPath { get; set; } = "";
+    /// <summary>libx264 (software) or a hardware H.264 encoder such as h264_nvenc, h264_qsv, h264_vaapi, h264_videotoolbox, h264_amf.</summary>
+    public string VideoEncoder { get; set; } = "libx264";
+    /// <summary>Transcoded height limit; 0 keeps the original size.</summary>
+    public int MaxHeight { get; set; } = 1080;
+    /// <summary>Videos converted at the same time; further players wait for one to stop.</summary>
+    public int MaxTranscodes { get; set; } = 2;
+    /// <summary>Render device for h264_vaapi (Linux).</summary>
+    public string VaapiDevice { get; set; } = "/dev/dri/renderD128";
 }
 
 public sealed class AnimeSourcesSettings

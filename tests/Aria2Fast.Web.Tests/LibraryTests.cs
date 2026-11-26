@@ -151,9 +151,9 @@ static class LibraryTests
         {
             var meta = BangumiClient.ParseSubject(JsonNode.Parse("""
                 {"id":400602,"name":"葬送のフリーレン","name_cn":"葬送的芙莉莲","summary":" 简介 ","date":"2023-09-29","platform":"TV",
-                 "images":{"large":"https://lain.bgm.tv/pic/cover/l/a.jpg","medium":"https://lain.bgm.tv/r/800/pic/cover/l/a.jpg"},"rating":{"score":9.1},"total_episodes":28}
+                 "images":{"large":"https://lain.bgm.tv/pic/cover/l/a.jpg","medium":"https://lain.bgm.tv/r/800/pic/cover/l/a.jpg","common":"https://lain.bgm.tv/r/400/pic/cover/l/a.jpg"},"rating":{"score":9.1},"total_episodes":28}
                 """)!);
-            Check(meta is { Source: "bangumi", SourceId: 400602, NameCn: "葬送的芙莉莲", Summary: "简介", Score: 9.1, TotalEpisodes: 28 } && meta.PosterUrl.Contains("/r/800/"));
+            Check(meta is { Source: "bangumi", SourceId: 400602, NameCn: "葬送的芙莉莲", Summary: "简介", Score: 9.1, TotalEpisodes: 28 } && meta.PosterUrl.Contains("/r/400/"));
             Check(BangumiClient.ParseSubject(JsonNode.Parse("""{"id":1,"rating":{"score":0},"eps":0}""")!) is { Score: null, TotalEpisodes: null, PosterUrl: "" });
             var episodes = BangumiClient.ParseEpisodes(JsonNode.Parse("""
                 [{"ep":1,"sort":13,"name":"a","name_cn":"甲","airdate":"2026-01-16","type":0},{"ep":1,"sort":1,"name":"op","type":2},{"sort":1.5,"name":"sp","type":1}]
@@ -172,7 +172,7 @@ static class LibraryTests
             Check(BangumiClient.Pick(search, "葬送的芙莉蓮", 3) == 400602);
             Check(BangumiClient.Pick(search, "完全无关的作品", 0) == null && BangumiClient.Pick([], "葬送的芙莉莲", 0) == null);
             var tmdb = TmdbClient.Parse(JsonNode.Parse("""{"id":209867,"name":"葬送的芙莉莲","original_name":"葬送のフリーレン","overview":"简介","first_air_date":"2023-09-29","vote_average":8.8,"poster_path":"/p.jpg"}""")!);
-            Check(tmdb is { Source: "tmdb", SourceId: 209867, Name: "葬送のフリーレン", NameCn: "葬送的芙莉莲", Score: 8.8, PosterUrl: "https://image.tmdb.org/t/p/w500/p.jpg" });
+            Check(tmdb is { Source: "tmdb", SourceId: 209867, Name: "葬送のフリーレン", NameCn: "葬送的芙莉莲", Score: 8.8, PosterUrl: "https://image.tmdb.org/t/p/w342/p.jpg" });
         });
         Test("Posters are stored only for JPEG, PNG, WebP and GIF data", () =>
         {

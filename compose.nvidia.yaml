@@ -1,0 +1,18 @@
+# NVIDIA hardware transcoding (NVENC) for the media library. Requires the NVIDIA driver and the NVIDIA Container Toolkit on the host:
+#   docker compose -f compose.yaml -f compose.nvidia.yaml up -d
+# Then choose "NVIDIA NVENC" in Settings → 媒体库 → 转码 and press "测试编码器".
+services:
+  aria2fast:
+    # The image variant with ffmpeg; the toolkit mounts the driver's encoder libraries into it.
+    image: ${ARIA2FAST_IMAGE:-ghcr.io/aiqinxuancai/aria2fast.web:latest-ffmpeg}
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      # "video" provides libnvidia-encode, which NVENC needs.
+      NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

@@ -2,5 +2,9 @@
 services:
   aria2fast:
     image: aria2fast-web:local
-    build: .
+    build:
+      context: .
+      args:
+        # true adds ffmpeg, so the media library can remux and transcode videos browsers cannot play.
+        WITH_FFMPEG: ${ARIA2FAST_WITH_FFMPEG:-false}
     pull_policy: build

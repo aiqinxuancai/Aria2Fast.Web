@@ -20,6 +20,13 @@ public sealed class LibraryService(StateStore store, LibraryStore library, Playb
     private readonly SemaphoreSlim scrapeGate = new(1);
     private readonly SemaphoreSlim wake = new(0);
     private readonly ConcurrentDictionary<string, byte> completed = new();
+    // AI scraping runs one work at a time, in the background; the latest status per work is kept for the detail page.
+    private readonly SemaphoreSlim aiGate = new(1);
+    private readonly ConcurrentDictionary<string, AiScrapeStatus> aiScrapes = new();
+    private readonly CancellationTokenSource stopping = new();
+    private const int AutomaticAiPerRound = 3;
+
+    public sealed record AiScrapeStatus(string State, string Message, DateTimeOffset UpdatedAt);
     public bool Scanning { get; private set; }
 
     public void RequestScan() { if (wake.CurrentCount == 0) wake.Release(); }
@@ -32,7 +39,7 @@ public sealed class LibraryService(StateStore store, LibraryStore library, Playb
         {
             try
             {
-                if (store.Read().Settings.Library.Enabled) { await Scan(stoppingToken); await ScrapeDue(stoppingToken); }
+                if (store.Read().Settings.Library.Enabled) { await Scan(stoppingToken); await ScrapeDue(stoppingToken); await AutomaticAiScrape(stoppingToken); await UpgradePosters(stoppingToken); }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception ex) { logger.LogWarning(ex, "媒体库更新失败"); }
@@ -59,19 +66,36 @@ public sealed class LibraryService(StateStore store, LibraryStore library, Playb
             var root = Path.GetFullPath(state.Settings.DownloadDirectory);
             var claims = Claims(state, root);
             var subscriptions = state.Subscriptions.Where(s => s.NodeId == "local").ToDictionary(s => s.Id);
-            var (files, truncated) = await Task.Run(() => (LibraryScanner.Walk(root, out var cut), cut), ct);
-            var now = DateTimeOffset.UtcNow;
-            // A missing disk or an unmounted NAS share (an empty mount point) would otherwise empty the index and lose
-            // manual matches, corrections and playback history.
-            if (files.Count == 0 && library.Query(l => l.Episodes.Count > 0) && !HasEntries(root))
-                next = library.Replace(l => { l.LastScan = now; l.LastScanWarning = "下载目录不存在、无法访问或为空，媒体库保留上次扫描的结果"; return l; });
-            else
+            var folders = LibraryFolders.Resolve(state.Settings.Library, root);
+            var (files, truncated, missing) = await Task.Run(() =>
             {
-                // Merge under the store lock so metadata fetched during the walk is not overwritten.
-                next = library.Replace(current => LibraryScanner.Build(files, claims, subscriptions, current, now, truncated));
-                RemoveStalePosters(next);
-                PruneProgress(next);
-            }
+                var all = new List<LibraryScanner.ScannedFile>();
+                var cut = false;
+                var absent = new List<LibraryFolders.Folder>();
+                foreach (var folder in folders)
+                {
+                    if (!HasEntries(folder.FullPath)) { absent.Add(folder); continue; }
+                    all.AddRange(LibraryScanner.Walk(folder.FullPath, folder.Prefix, folder.Id, LibraryFolders.Nested(folder, folders), LibraryScanner.FileLimit - all.Count, out var stopped));
+                    if (cut |= stopped) break;
+                }
+                return (all, cut, absent);
+            }, ct);
+            var now = DateTimeOffset.UtcNow;
+            // A missing disk or an unmounted NAS share (an empty mount point) would otherwise drop that folder's works and lose
+            // manual matches, corrections and playback history; folders that never had videos (e.g. an unused movies folder) are quiet.
+            var rootFolder = folders.FirstOrDefault(f => f.Prefix.Length == 0)?.Id;
+            var keep = library.Query(l => missing.Where(f => l.Series.Any(s => (s.FolderId.Length > 0 ? s.FolderId : rootFolder) == f.Id)).ToList());
+            var ids = folders.ToDictionary(f => f.Id);
+            // Merge under the store lock so metadata fetched during the walk is not overwritten.
+            next = library.Replace(current =>
+            {
+                var built = LibraryScanner.Build(files, claims, subscriptions, current, now, truncated, ids, keep.Select(f => f.Id).ToHashSet());
+                if (keep.Count > 0) built.LastScanWarning = "媒体目录不存在、无法访问或为空，保留了上次扫描的结果：" + string.Join("、", keep.Select(f => f.FullPath));
+                return built;
+            });
+            RemoveStalePosters(next);
+            RemoveStaleMedia(next);
+            PruneProgress(next);
         }
         finally { Scanning = false; scanGate.Release(); }
         return Status(next);
@@ -182,26 +206,63 @@ public sealed class LibraryService(StateStore store, LibraryStore library, Playb
         }
     }
 
+    /// <summary>
+    /// Posters cached before the switch to 400 px covers (Bangumi /r/800/, TMDB w500) are replaced once by the smaller size,
+    /// which looks smoother on screen. Only the image is fetched again.
+    /// </summary>
+    private async Task UpgradePosters(CancellationToken ct)
+    {
+        var stale = library.Read().Series.Where(s => s.Metadata is { PosterFile.Length: > 0 } m && LargePoster(m.PosterUrl)).Select(s => (s.Id, s.Metadata!)).ToList();
+        foreach (var (id, metadata) in stale)
+        {
+            var smaller = metadata with { PosterUrl = metadata.PosterUrl.Replace("/r/800/", "/r/400/").Replace("/t/p/w500/", "/t/p/w342/"), PosterFile = "" };
+            var updated = await Poster(id, smaller, ct);
+            if (updated.PosterFile.Length == 0) continue;
+            library.Update(l =>
+            {
+                if (l.Series.FirstOrDefault(s => s.Id == id) is { Metadata: { } current } series && current.SourceId == metadata.SourceId && current.Source == metadata.Source)
+                    series.Metadata = current with { PosterUrl = updated.PosterUrl, PosterFile = updated.PosterFile, UpdatedAt = DateTimeOffset.UtcNow };
+            });
+            await Task.Delay(TimeSpan.FromMilliseconds(500), ct);
+        }
+    }
+
+    private static bool LargePoster(string url) => url.Contains("lain.bgm.tv/r/800/", StringComparison.Ordinal) || url.Contains("image.tmdb.org/t/p/w500/", StringComparison.Ordinal);
+
     /// <summary>Identity order: manual or subscription ID, then the bgm.tv link on the Mikan page, then a Bangumi search, then TMDB.</summary>
-    public async Task Scrape(string id, CancellationToken ct)
+    public async Task Scrape(string id, CancellationToken ct, LibraryMatchSource? identity = null)
     {
         await scrapeGate.WaitAsync(ct);
         try
         {
             var series = library.Read().Series.FirstOrDefault(s => s.Id == id) ?? throw new FileNotFoundException("作品不存在或已被移除");
-            LibraryMatchSource? source = series.ManualMatch ? LibraryMatchSource.Manual : series.BgmId != null || series.TmdbId != null ? LibraryMatchSource.Subscription : null;
+            LibraryMatchSource? source = identity ?? (series.ManualMatch ? LibraryMatchSource.Manual : series.BgmId != null || series.TmdbId != null ? LibraryMatchSource.Subscription : null);
             LibraryMetadata? metadata = null;
             string? error = null;
             try
             {
                 var bgmId = series.BgmId;
                 var known = bgmId != null || series.TmdbId != null;
-                if (!known && series.MikanId != null && (bgmId = await mikan.BangumiTvId(series.MikanId, ct)) != null) source = LibraryMatchSource.Mikan;
                 var terms = ReleaseNames.SearchTerms(series.Title);
-                if (!known && bgmId == null && (bgmId = await bangumi.Find(terms, series.Season, ct)) != null) source = LibraryMatchSource.Search;
-                if (bgmId is int subject) metadata = await bangumi.Subject(subject, ct);
-                else if (series.TmdbId is int tv) metadata = await tmdb.Tv(tv, ct);
-                else if (tmdb.Configured && (metadata = await tmdb.Search(terms, ct)) != null) source = LibraryMatchSource.Search;
+                var types = BangumiClient.Types(series.Category);
+                if (bgmId is int fixedSubject) metadata = await bangumi.Subject(fixedSubject, ct);
+                else if (series.TmdbId is int fixedTmdb) metadata = series.Category == LibraryCategory.Movie ? await tmdb.Movie(fixedTmdb, ct) : await tmdb.Tv(fixedTmdb, ct, series.Season);
+                else if (series.Category == LibraryCategory.Anime)
+                {
+                    // Anime: Mikan's link to bgm.tv, then a Bangumi search, then TMDB.
+                    if (series.MikanId != null && (bgmId = await mikan.BangumiTvId(series.MikanId, ct)) != null) source = LibraryMatchSource.Mikan;
+                    else if ((bgmId = await bangumi.Find(terms, series.Season, ct, types)) != null) source = LibraryMatchSource.Search;
+                    if (bgmId is int subject) metadata = await bangumi.Subject(subject, ct);
+                    else if (tmdb.Configured && (metadata = await tmdb.Search(terms, ct, series.Season)) != null) source = LibraryMatchSource.Search;
+                }
+                else
+                {
+                    // TV series and movies: TMDB covers them far better than Bangumi, which still knows anime films and Asian dramas.
+                    if (tmdb.Configured) metadata = series.Category == LibraryCategory.Movie ? await tmdb.SearchMovie(terms, series.Year, ct) : await tmdb.Search(terms, ct, series.Season);
+                    if (metadata == null && (bgmId = await bangumi.Find(terms, series.Season, ct, types)) is int subject) metadata = await bangumi.Subject(subject, ct);
+                    if (metadata != null) source = LibraryMatchSource.Search;
+                }
+                if (!known && metadata == null) source = null;
                 if (metadata != null) metadata = await Poster(series.Id, metadata, ct);
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) { error = ex.Message; }
@@ -222,7 +283,8 @@ public sealed class LibraryService(StateStore store, LibraryStore library, Playb
             {
                 current.Metadata = metadata; current.MatchedBy = source; current.Status = LibraryMetadataStatus.Matched;
                 current.Error = null; current.Attempts = 0; current.NextAttempt = null;
-                if (metadata.Source == "bangumi") current.BgmId = metadata.SourceId; else current.TmdbId = metadata.SourceId;
+                if (metadata.Source == "bangumi") current.BgmId = metadata.SourceId;
+                else if (metadata.Source.StartsWith("tmdb", StringComparison.Ordinal)) current.TmdbId = metadata.SourceId;
                 return;
             }
             current.Attempts++;
@@ -262,6 +324,113 @@ public sealed class LibraryService(StateStore store, LibraryStore library, Playb
         return Detail(id);
     }
 
+    private bool AiConfigured() => store.Read().Settings.AiProfiles.Any(p => !string.IsNullOrWhiteSpace(p.ApiKey));
+
+    /// <summary>Starts AI scraping of one work in the background (if not already running) and returns its status.</summary>
+    public AiScrapeStatus StartAiScrape(string id)
+    {
+        if (!library.Query(l => l.Series.Any(s => s.Id == id))) throw new FileNotFoundException("作品不存在或已被移除");
+        if (!AiConfigured()) throw new ArgumentException("请先在「设置中心 → AI 与智能功能」中配置 AI 接口");
+        if (aiScrapes.TryGetValue(id, out var current) && current.State == "running") return current;
+        var status = aiScrapes[id] = new("running", "等待开始", DateTimeOffset.UtcNow);
+        _ = Task.Run(() => AiScrape(id, automatic: false, stopping.Token));
+        return status;
+    }
+
+    /// <summary>After normal matching found nothing: each unmatched work is tried by the AI once (a few per round).</summary>
+    private async Task AutomaticAiScrape(CancellationToken ct)
+    {
+        var settings = store.Read().Settings.Library;
+        if (!settings.AiScrape || !settings.FetchMetadata || !AiConfigured()) return;
+        var due = library.Read().Series.Where(s => s.Status == LibraryMetadataStatus.Unmatched && s.AiTriedAt == null && !s.ManualMatch)
+            .OrderByDescending(s => s.UpdatedAt).Take(AutomaticAiPerRound).Select(s => s.Id).ToList();
+        foreach (var id in due)
+        {
+            var now = DateTimeOffset.UtcNow;
+            library.Update(l => { if (l.Series.FirstOrDefault(s => s.Id == id) is { } s) s.AiTriedAt = now; });
+            await AiScrape(id, automatic: true, ct);
+        }
+    }
+
+    private async Task AiScrape(string id, bool automatic, CancellationToken ct)
+    {
+        void Report(string state, string message) => aiScrapes[id] = new(state, message, DateTimeOffset.UtcNow);
+        await aiGate.WaitAsync(ct);
+        try
+        {
+            Report("running", "AI 正在识别作品");
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            deadline.CancelAfter(TimeSpan.FromMinutes(6));
+            var state = library.Read();
+            var series = state.Series.FirstOrDefault(s => s.Id == id) ?? throw new FileNotFoundException("作品不存在或已被移除");
+            var subscription = series.SubscriptionId == null ? null : store.Read().Subscriptions.FirstOrDefault(s => s.Id == series.SubscriptionId);
+            var files = state.Episodes.Where(e => e.SeriesId == id).Select(e => Path.GetFileName(e.Path)).Order(StringComparer.Ordinal).Take(20).ToList();
+            var target = new ScrapeTarget(series.Category.ToString().ToLowerInvariant(), series.Directory.Length > 0 ? series.Directory : series.Title, series.Season, series.Year, files,
+                subscription?.Name ?? "", series.Metadata is { } m ? $"当前匹配：{m.Source} {m.SourceId} {DisplayTitle(series)}" : series.Error ?? "");
+            var answer = await Agent(series).Run(target, deadline.Token, message => Report("running", message));
+            if (answer.Confidence == "low" || (answer.Source == "none" && answer.Title.Length == 0))
+            {
+                var reason = "AI 无法确定是哪部作品" + (answer.Reason.Length > 0 ? "：" + answer.Reason : "");
+                if (automatic) library.Update(l => { if (l.Series.FirstOrDefault(s => s.Id == id) is { Status: not LibraryMetadataStatus.Matched } s) s.Error = reason; });
+                Report("failed", reason);
+                return;
+            }
+            if (answer.Source is "bangumi" or "tmdb")
+            {
+                library.Update(l =>
+                {
+                    var current = l.Series.FirstOrDefault(s => s.Id == id) ?? throw new FileNotFoundException("作品不存在或已被移除");
+                    current.BgmId = answer.Source == "bangumi" ? answer.Id : null;
+                    current.TmdbId = answer.Source == "tmdb" ? answer.Id : null;
+                    current.ManualMatch = false; current.Metadata = null; current.MatchedBy = null; current.Status = LibraryMetadataStatus.Pending;
+                    current.Error = null; current.Attempts = 0; current.NextAttempt = null;
+                });
+                await Scrape(id, deadline.Token, LibraryMatchSource.Ai);
+            }
+            else
+            {
+                // Neither database has the work: keep what the agent assembled from web pages.
+                var metadata = new LibraryMetadata("ai", 0, answer.OriginalTitle, answer.Title, answer.Summary, answer.Date, null, null, series.Category switch
+                {
+                    LibraryCategory.Movie => "电影", LibraryCategory.Series => "电视剧", _ => ""
+                }) { PosterUrl = answer.Poster, Reference = answer.Reference, UpdatedAt = DateTimeOffset.UtcNow };
+                metadata = await Poster(id, metadata, deadline.Token);
+                Save(library.Read().Series.First(s => s.Id == id), metadata, LibraryMatchSource.Ai, null);
+            }
+            var result = library.Read().Series.FirstOrDefault(s => s.Id == id);
+            Report(result?.Status == LibraryMetadataStatus.Matched ? "succeeded" : "failed",
+                result?.Status == LibraryMetadataStatus.Matched ? "AI 已匹配：" + DisplayTitle(result) + (answer.Reason.Length > 0 ? "（" + answer.Reason + "）" : "") : result?.Error ?? "匹配失败");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            logger.LogInformation(ex, "AI 刮削失败 {Id}", id);
+            Report("failed", ex is OperationCanceledException ? "AI 刮削超时" : "AI 刮削失败：" + ex.Message);
+        }
+        finally { aiGate.Release(); }
+    }
+
+    /// <summary>The agent with the tools for the work's category; TMDB tools exist only with a key.</summary>
+    private LibraryScrapeAgent Agent(LibrarySeries series)
+    {
+        var settings = store.Read().Settings;
+        var search = new ResearchSearchTools(settings, () => http.Create(timeoutSeconds: 25));
+        var movie = series.Category == LibraryCategory.Movie;
+        var types = BangumiClient.Types(series.Category);
+        return new LibraryScrapeAgent((prompt, instruction, token) => ai.Send(prompt, instruction, token),
+            search.Providers.Count > 0 ? search.Search : null, search.Providers,
+            (url, token) => WebFetchService.Shared.FetchAsync(url, 8000, token),
+            (keyword, token) => bangumi.Search(keyword, token, 10, types),
+            (subject, token) => bangumi.Subject(subject, token),
+            tmdb.Configured ? (query, year, token) => tmdb.Candidates(query, movie, year, token) : null,
+            tmdb.Configured ? (tmdbId, token) => movie ? tmdb.Movie(tmdbId, token) : tmdb.Tv(tmdbId, token, series.Season) : null);
+    }
+
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        await stopping.CancelAsync();
+        await base.StopAsync(cancellationToken);
+    }
+
     public async Task<object> Refresh(string id, CancellationToken ct)
     {
         await Scrape(id, ct);
@@ -269,11 +438,11 @@ public sealed class LibraryService(StateStore store, LibraryStore library, Playb
     }
 
     /// <summary>Bangumi anime search for choosing a match by hand.</summary>
-    public async Task<object> Search(string? keyword, CancellationToken ct)
+    public async Task<object> Search(string? keyword, LibraryCategory category, CancellationToken ct)
     {
         keyword = keyword?.Trim() ?? "";
         if (keyword.Length is 0 or > 100) throw new ArgumentException("请输入 1 至 100 个字符的作品名");
-        return (await bangumi.Search(keyword, ct)).Select(c => new { c.Id, c.Name, c.NameCn, c.Date, c.Image, c.Episodes, url = $"https://bgm.tv/subject/{c.Id}" });
+        return (await bangumi.Search(keyword, ct, 20, BangumiClient.Types(category))).Select(c => new { c.Id, c.Name, c.NameCn, c.Date, c.Image, c.Episodes, url = $"https://bgm.tv/subject/{c.Id}" });
     }
 
     /// <summary>Corrects one video's episode number and kind; kept across scans until reset.</summary>
@@ -371,7 +540,11 @@ public sealed class LibraryService(StateStore store, LibraryStore library, Playb
             .Where(x => x.Played != null).OrderByDescending(x => x.Played)
             .Select(x => (x.Series, x.Played, Next: Resume(x.Episodes, progress))).Where(x => x.Next != null).Take(12)
             .Select(x => new { seriesId = x.Series.Id, title = DisplayTitle(x.Series), poster = PosterUrl(x.Series), playedAt = x.Played, episode = EpisodeItem(x.Next!, x.Series.Metadata, progress) });
-        return new { status = Status(state), continueWatching = continuing, series = works.Select(x => Summary(x.Series, x.Episodes, progress)) };
+        return new
+        {
+            status = Status(state), continueWatching = continuing, series = works.Select(x => Summary(x.Series, x.Episodes, progress)),
+            aiScraping = aiScrapes.Where(x => x.Value.State == "running").Select(x => x.Key)
+        };
     }
 
     public object Detail(string id)
@@ -388,10 +561,10 @@ public sealed class LibraryService(StateStore store, LibraryStore library, Playb
             metadata = meta == null ? null : new
             {
                 meta.Source, meta.SourceId, meta.Name, meta.NameCn, meta.Summary, meta.AirDate, meta.Score, meta.TotalEpisodes, meta.Platform, meta.UpdatedAt,
-                url = meta.Source == "bangumi" ? $"https://bgm.tv/subject/{meta.SourceId}" : $"https://www.themoviedb.org/tv/{meta.SourceId}"
+                url = SourceUrl(meta)
             },
             resume = next == null ? null : EpisodeItem(next, meta, progress),
-            aiAvailable = store.Read().Settings.AiProfiles.Any(p => !string.IsNullOrWhiteSpace(p.ApiKey)),
+            aiAvailable = AiConfigured(), aiScrape = aiScrapes.GetValueOrDefault(id),
             episodes = episodes.Select(e => EpisodeItem(e, meta, progress))
         };
     }
@@ -402,7 +575,7 @@ public sealed class LibraryService(StateStore store, LibraryStore library, Playb
         var main = episodes.Where(e => e.Kind == LibraryEpisodeKind.Episode).ToList();
         return new
         {
-            s.Id, title = DisplayTitle(s), originalTitle = meta?.Name ?? "", folderTitle = s.Title, s.Directory, s.Season, s.SubscriptionId, s.MikanId, s.BgmId, s.TmdbId,
+            s.Id, title = DisplayTitle(s), originalTitle = meta?.Name ?? "", folderTitle = s.Title, s.Directory, s.Season, s.Category, s.FolderId, s.Year, s.SubscriptionId, s.MikanId, s.BgmId, s.TmdbId,
             s.ManualMatch, s.MatchedBy, s.Status, s.Error,
             poster = PosterUrl(s), airDate = meta?.AirDate ?? "", score = meta?.Score, totalEpisodes = meta?.TotalEpisodes,
             episodeCount = main.Count, extraCount = episodes.Count - main.Count, latestEpisode = main.Max(e => e.Number), size = episodes.Sum(e => e.Size),
@@ -411,6 +584,14 @@ public sealed class LibraryService(StateStore store, LibraryStore library, Playb
             s.AddedAt, s.UpdatedAt
         };
     }
+
+    public static string SourceUrl(LibraryMetadata meta) => meta.Source switch
+    {
+        "bangumi" => $"https://bgm.tv/subject/{meta.SourceId}",
+        "tmdb" => $"https://www.themoviedb.org/tv/{meta.SourceId}",
+        "tmdb-movie" => $"https://www.themoviedb.org/movie/{meta.SourceId}",
+        _ => meta.Reference
+    };
 
     public static string DisplayTitle(LibrarySeries s) =>
         s.Metadata is not { } meta ? s.Title : meta.NameCn.Length > 0 ? meta.NameCn : meta.Name.Length > 0 ? meta.Name : s.Title;
@@ -468,7 +649,8 @@ public sealed class LibraryService(StateStore store, LibraryStore library, Playb
         if (metadata.PosterUrl.Length == 0) return metadata;
         try
         {
-            var bytes = await http.GetBytesAsync(metadata.PosterUrl, PosterLimit, ct);
+            // Addresses the AI agent found on the web may point anywhere, so they are fetched from public addresses only.
+            var bytes = metadata.Source == "ai" ? await WebFetchService.Shared.DownloadAsync(metadata.PosterUrl, PosterLimit, ct) : await http.GetBytesAsync(metadata.PosterUrl, PosterLimit, ct);
             var extension = ImageExtension(bytes) ?? throw new InvalidDataException("海报不是 JPEG、PNG、WebP 或 GIF 图片");
             var target = Path.Combine(library.PosterDirectory, id + extension);
             await File.WriteAllBytesAsync(target + ".tmp", bytes, ct);
@@ -492,6 +674,15 @@ public sealed class LibraryService(StateStore store, LibraryStore library, Playb
             var name = Path.GetFileName(file);
             if (!ids.Contains(name.Split('.')[0])) try { File.Delete(file); } catch (IOException) { }
         }
+    }
+
+    /// <summary>ffprobe results, keyframes and extracted subtitles of videos that are gone.</summary>
+    private void RemoveStaleMedia(LibraryState state)
+    {
+        if (!Directory.Exists(library.MediaDirectory)) return;
+        var ids = state.Episodes.Select(e => e.Id).ToHashSet();
+        foreach (var folder in Directory.EnumerateDirectories(library.MediaDirectory))
+            if (!ids.Contains(Path.GetFileName(folder))) try { Directory.Delete(folder, true); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
     /// <summary>Raster formats only: SVG can carry script and is never stored.</summary>

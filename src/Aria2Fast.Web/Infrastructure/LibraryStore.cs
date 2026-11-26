@@ -6,10 +6,16 @@ namespace Aria2Fast.Web.Infrastructure;
 public sealed class LibraryStore : JsonFileStore<LibraryState>
 {
     public string PosterDirectory { get; }
+    /// <summary>Per-video ffprobe results, keyframe lists, extracted subtitles and fonts, in a folder named after the episode ID.</summary>
+    public string MediaDirectory { get; }
+    /// <summary>HLS segments of running playback sessions; emptied at startup.</summary>
+    public string TranscodeDirectory { get; }
 
     public LibraryStore(StateStore store) : base(store, Path.Combine(store.DataDirectory, "library", "library.json"), s => s.SchemaVersion == 1, "媒体库索引")
     {
         PosterDirectory = Path.Combine(store.DataDirectory, "library", "posters");
+        MediaDirectory = Path.Combine(store.DataDirectory, "library", "media");
+        TranscodeDirectory = Path.Combine(store.DataDirectory, "library", "transcodes");
         Directory.CreateDirectory(PosterDirectory);
     }
 }

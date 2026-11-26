@@ -1,10 +1,27 @@
 # 媒体库
 
-> **实施状态（2026-11-26）**：第一阶段（数据打通）和第二阶段（海报墙与播放）已完成。转码、内封字幕提取（第三阶段）和 Jellyfin 等联动（第四阶段）尚未开始。
+> **实施状态（2026-11-26）**：第一至第三阶段已完成：数据打通、海报墙与播放、ffmpeg 转封装 / 转码与内封字幕（ffmpeg 可选）；另外加入了剧集 / 电影分类与自定义媒体目录、AI 刮削。Jellyfin 等联动（第四阶段）尚未开始。
 
-媒体库把本地下载目录中的视频按作品整理成海报墙，获取海报、简介、评分和分集标题，并可以直接在浏览器里播放。它只读取文件，不移动、不改名；和订阅打通后，从「发现番剧」订阅的作品可以精确关联到 Bangumi 条目。
+媒体库把本地下载目录（以及你添加的其他媒体目录）中的视频按作品整理成海报墙，分为番剧、剧集和电影，获取海报、简介、评分和分集标题，并可以直接在浏览器里播放。它只读取文件，不移动、不改名；和订阅打通后，从「发现番剧」订阅的作品可以精确关联到 Bangumi 条目。
 
 侧边栏的「媒体库」是海报墙；「设置中心 → 媒体库」可以开关媒体库和资料获取、设置定时扫描间隔、修改 Bangumi API 地址（可填镜像），以及立即扫描。
+
+## 媒体目录与类别
+
+「设置中心 → 媒体库 → 媒体目录」列出要整理的目录，每个目录选择一个类别：
+
+| 默认目录 | 类别 | Docker 中的位置 |
+| --- | --- | --- |
+| （留空）本地下载目录本身 | 番剧 | `/downloads` |
+| `tvshows` | 剧集 | `/downloads/tvshows` |
+| `movies` | 电影 | `/downloads/movies` |
+
+- 相对路径（以及留空）位于「本地下载目录」之内；也可以填写绝对路径，添加 NAS 挂载盘等其他位置的视频。目录不存在时会被跳过，不会报错。
+- 位于另一个目录之内的目录按自己的类别整理，例如扫描番剧（下载目录）时会跳过 `tvshows` 和 `movies`。
+- **番剧**和**剧集**按作品文件夹与季度划分，规则见下文「作品如何划分」；剧集常见的 `S01E05`、`Season 1` 文件夹都能识别。
+- **电影**：每个文件夹是一部电影（其中多个视频算作分段或不同版本，`Featurettes`、`Extras` 等文件夹算花絮）；直接放在电影目录下的视频，每个文件各是一部。电影名和年份从 `Inception (2010)`、`Inception.2010.1080p.BluRay`、`[组] 你的名字 [2016]` 这类名称中读取，年份用于匹配。
+- 海报墙在有多种类别时显示「全部 / 番剧 / 剧集 / 电影」分页；电影页显示视频文件列表，不显示集数。
+- 下载目录之外的视频在库中以 `@目录 ID/相对路径` 记录；从设置中删除该目录后，这些视频在下次扫描时移出媒体库。
 
 ## 海报墙与作品页
 
@@ -30,7 +47,9 @@
 
 ### 浏览器能放什么
 
-浏览器只能直接播放它支持的格式：MP4 / WebM 中的 H.264、VP9、AV1 视频和 AAC、Opus 音频基本都可以；Chrome / Edge 还能播放部分 MKV。字幕组常用的 **HEVC（H.265）10bit**、**FLAC 音轨**和 MKV 封装，在很多浏览器上无法播放，或者只有声音没有画面。遇到这种情况，播放页会说明原因，请改用外部播放器。第三阶段计划加入可选的 ffmpeg 转封装 / 转码。
+浏览器只能直接播放它支持的格式：MP4 / WebM 中的 H.264、VP9、AV1 视频和 AAC、Opus 音频基本都可以；Chrome / Edge 还能播放部分 MKV。字幕组常用的 **HEVC（H.265）10bit**、**FLAC 音轨**和 MKV 封装，在很多浏览器上无法播放，或者只有声音没有画面。
+
+服务器上有 ffmpeg 时，播放页会自动转封装或转码（见下文「转码」）；没有时，播放页会说明原因，请改用外部播放器。
 
 ### 外部播放器
 
@@ -56,7 +75,87 @@
 
 文件名中的语言标记会识别为「简体中文」「繁體中文」「简日双语」「繁日双语」「日本語」「English」等，简体中文排在最前、默认显示。字幕文件可以是 UTF-8、UTF-16 或 GBK 编码。
 
-浏览器的字幕轨只支持 WebVTT，所以 SRT 和 ASS 会在服务端转换：SRT 的斜体、粗体、下划线会保留；ASS 只保留台词文字、换行和顶部对齐，**样式、字体、位置、特效和卡拉 OK 会丢失**，矢量绘图行会被跳过。需要完整特效时请用外部播放器。MKV 内封字幕需要 ffmpeg，属于第三阶段。
+浏览器的字幕轨只支持 WebVTT，所以 SRT 和 ASS 会在服务端转换：SRT 的斜体、粗体、下划线会保留；ASS 只保留台词文字、换行和顶部对齐，**样式、字体、位置、特效和卡拉 OK 会丢失**，矢量绘图行会被跳过。需要完整特效时，可以在有 ffmpeg 时选择「烧录到画面」，或用外部播放器。
+
+有 ffmpeg 时，视频**内封的文字字幕**（ASS、SRT 等）也会出现在字幕菜单里，标为「内封」；第一次选用时 ffmpeg 会读一遍整个文件把它们提取出来（同时提取内嵌字体），之后直接使用缓存。图形字幕（PGS、DVD）只能烧录。
+
+## 转码（ffmpeg，可选）
+
+本项目不附带 ffmpeg。在服务器上安装 ffmpeg（需要同时有 ffmpeg 和 ffprobe）后，媒体库可以播放浏览器本身放不了的视频：
+
+- **Windows / macOS**：安装 ffmpeg 并加入 PATH，或把 `ffmpeg`、`ffprobe` 放在程序目录（或其中的 `ffmpeg` 文件夹）下，也可以在「设置中心 → 媒体库 → 转码」填写所在位置。macOS 可用 `brew install ffmpeg`。
+- **Docker**：默认镜像不含 ffmpeg，请改用带 ffmpeg 的镜像 `ghcr.io/aiqinxuancai/aria2fast.web:latest-ffmpeg`（每个版本另有 `x.y.z-ffmpeg`），见下文「Docker 与显卡」。
+- 设置页的「检测 ffmpeg」会显示版本和可用的 H.264 编码器，「测试编码器」用所选编码器转码 2 秒测试画面，用来确认硬件编码是否可用。
+
+### Docker 与显卡
+
+带 ffmpeg 的镜像（`latest-ffmpeg`）在默认镜像基础上安装了发行版的 ffmpeg，以及 VAAPI 驱动（AMD 用 Mesa；Intel 的 iHD 驱动只在 amd64 镜像中）。只用 CPU 转码时，把镜像换成它即可：
+
+```yaml
+# compose.yaml 中
+image: ghcr.io/aiqinxuancai/aria2fast.web:latest-ffmpeg
+```
+
+或在 `.env` 中设置 `ARIA2FAST_IMAGE=ghcr.io/aiqinxuancai/aria2fast.web:latest-ffmpeg`。自行构建时加 `--build-arg WITH_FFMPEG=true`，或在 `compose.build.yaml` 中设置环境变量 `ARIA2FAST_WITH_FFMPEG=true`。
+
+用显卡编码时，还需要把显卡开放给容器。仓库里提供了两份覆盖配置，与 `compose.yaml` 一起使用：
+
+**Intel 核显 / AMD 显卡（VAAPI）**
+
+```sh
+RENDER_GID=$(stat -c %g /dev/dri/renderD128) docker compose -f compose.yaml -f compose.vaapi.yaml up -d
+```
+
+`compose.vaapi.yaml` 把宿主机的 `/dev/dri` 映射进容器，并把容器用户加入拥有渲染设备的用户组（容器内以非 root 用户 `app` 运行，没有这个组就打不开 `/dev/dri/renderD128`）。之后在「设置中心 → 媒体库 → 转码」选择「VAAPI」，点「测试编码器」确认。需要注意：
+
+- 宿主机要有 `/dev/dri/renderD128`。多块显卡时可能是 `renderD129`，在设置中修改「VAAPI 设备」。
+- Intel 用 VAAPI 而不是 Quick Sync：镜像中的 iHD 驱动支持 VAAPI 编码，Quick Sync 还需要额外的运行库。较新的 Intel 核显（第 8 代以后）若测试失败，多半是发行版的开源版驱动不支持该型号的编码，可以改用 CPU 转码，或自行构建包含 `intel-media-va-driver-non-free` 的镜像。
+- 群晖等 NAS：只有带 Intel 核显的型号有 `/dev/dri`；在 Container Manager 中添加设备映射 `/dev/dri`，并用 `stat -c %g /dev/dri/renderD128` 查到的组 ID 设置附加用户组。unRAID 在模板中添加设备 `/dev/dri` 即可。
+
+**NVIDIA 显卡（NVENC）**
+
+先在宿主机安装 NVIDIA 驱动和 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)，然后：
+
+```sh
+docker compose -f compose.yaml -f compose.nvidia.yaml up -d
+```
+
+`compose.nvidia.yaml` 申请 GPU 并设置 `NVIDIA_DRIVER_CAPABILITIES=compute,video,utility`；其中的 `video` 会把 NVENC 需要的驱动库挂进容器，镜像本身不需要额外软件包。之后选择「NVIDIA NVENC」并测试。用 `docker run` 时对应 `--gpus all -e NVIDIA_DRIVER_CAPABILITIES=compute,video,utility`。
+
+无论哪种显卡，画面解码都在 CPU 上进行，显卡只负责编码；测试编码器失败时，播放会提示转码失败，改回「x264 软件编码」即可。
+
+### 播放方式
+
+打开视频时，服务器用 ffprobe 读出封装、编码、位深、音轨和字幕（结果会缓存），浏览器再判断自己能解码什么，自动选择：
+
+| 情况 | 播放方式 | 开销 |
+| --- | --- | --- |
+| 封装和编码浏览器都支持 | 直接播放原文件 | 无 |
+| 画面编码支持，但封装或音频不支持（例如 Safari 打开 MKV、浏览器不支持 FLAC / AC-3） | **转封装**：画面原样复制，只换成浏览器能读的格式，音频必要时转为 AAC | 几乎不占 CPU |
+| 画面编码不支持（例如不支持 HEVC 硬解的浏览器、MPEG-2、VC-1） | **转码**：画面转为 H.264，音频转为 AAC 立体声 | 占用 CPU 或显卡 |
+
+HEVC 能否直接解码取决于浏览器和硬件：Safari（macOS、iOS）以及有硬件解码的 Chrome / Edge 一般可以，这时 HEVC 视频只需转封装。直接播放失败时（报错，或只有声音没有画面），播放页会自动改用转码。
+
+播放页的「播放方式」菜单可以手动选择直接播放、转封装，或按 1080p / 720p / 480p 转码；视频有多条音轨时还有音轨菜单，选择非默认音轨会改用转封装或转码。切换时保留当前播放位置。
+
+转封装和转码都以 HLS 方式分段传输：Chrome、Edge、Firefox 使用内置的 hls.js 播放，Safari 和 iOS 使用系统自带的 HLS。可以随意拖动进度；拖到还没转好的位置时，ffmpeg 会从那里重新开始，等待几秒即可。转码最多领先播放位置约 4 分钟，之后暂停，快播到时再继续，不会一次转完整集；播放位置之前 10 分钟以上的分段会被删除。离开播放页或 2 分钟没有请求时，转码任务结束，临时文件删除。
+
+### 烧录字幕
+
+字幕菜单的「烧录到画面」会把字幕画进视频（需要转码）：内封或外挂的 ASS 字幕保留全部样式、位置和特效，并使用 MKV 中附带的字体；图形字幕（PGS、DVD）也只能这样显示。烧录与视频时间轴同步，拖动后依然对齐。
+
+### 设置项
+
+| 设置 | 说明 |
+| --- | --- |
+| 启用转码 | 关闭后只直接播放原文件 |
+| ffmpeg 位置 | ffmpeg 可执行文件或所在文件夹；留空时在程序目录和 PATH 中查找 |
+| 视频编码器 | x264 软件编码（默认，兼容性最好）、NVIDIA NVENC、Intel Quick Sync、VAAPI（Linux 核显 / AMD）、Apple VideoToolbox、AMD AMF。硬件编码需要相应驱动；Docker 中使用 VAAPI / QSV 需映射 `/dev/dri` 并让容器用户有权限访问 |
+| 转码分辨率上限 | 默认 1080p，高于上限的视频会缩小 |
+| 同时转码的视频数 | 默认 2。转封装不计入。达到上限时，超过 30 秒没有播放的转码会被让出，否则提示稍后再试 |
+| VAAPI 设备 | 默认 `/dev/dri/renderD128` |
+
+转码时画面在 CPU 上解码，只有编码使用所选的硬件编码器；10bit HEVC 软件解码对低功耗 NAS 的 CPU 压力较大，可以把分辨率上限调到 720p，或优先用转封装（让浏览器硬件解码）。
 
 ## 什么时候扫描
 
@@ -70,11 +169,11 @@
 
 ## 作品如何划分
 
-媒体库中的一个「作品」对应一季，也就是 Bangumi 的一个条目，通常也对应一条订阅。每个视频按下面的顺序归入作品：
+番剧和剧集中的一个「作品」对应一季，也就是 Bangumi 的一个条目，通常也对应一条订阅。每个视频按下面的顺序归入作品：
 
 1. **本地订阅的作品目录**：视频位于某条本地订阅的「下载目录 / 作品目录」下，就属于这条订阅。从「发现番剧」订阅时作品目录会自动填写。没有作品目录的订阅，只有在下载目录不与其他订阅共用时才认领该目录，避免把手动建立的「Anime」之类合集目录当成一部作品。
-2. **下载目录下的第一级文件夹**：例如 `下载目录/葬送的芙莉莲/…`。文件夹名中的字幕组和括号标签会去掉，例如 `[Group] 作品 [01-12][1080p]` 识别为「作品」。
-3. **下载目录根部的散落文件**：按文件名中解析出的作品名分组。
+2. **媒体目录下的第一级文件夹**：例如 `下载目录/葬送的芙莉莲/…`。文件夹名中的字幕组和括号标签会去掉，例如 `[Group] 作品 [01-12][1080p]` 识别为「作品」。
+3. **媒体目录根部的散落文件**：按文件名中解析出的作品名分组。
 
 季度按以下优先级确定：`Season 2`、`S02`、`第二季` 这类季度文件夹，其次文件名里的 `S2`、`S02E05`、`第二季`、`2nd Season`，再次作品文件夹名，最后是订阅设置的季度。同一作品文件夹下的不同季度分开显示。
 
@@ -103,9 +202,33 @@
 
 修改和识别的结果按文件路径保存，重新扫描不会覆盖；手动修改优先于 AI 结果，AI 不会改动手动修改过的视频。「更多 → 恢复自动识别集数」或修改窗口中的「恢复按文件名识别」可以撤销。文件被移动或删除后，对应的修改会被清除。
 
+## AI 刮削
+
+常规匹配（Mikan 链接、名称搜索）找不到或找错时，可以让 AI 来识别。需要先在「设置中心 → AI 与智能功能」配置 AI 接口。
+
+- **手动**：作品页点「AI 刮削」，在后台运行，页面显示当前步骤（搜索 Bangumi、查看条目、网络搜索、读取网页等），完成后自动刷新。
+- **自动**：「媒体库」设置中的「常规匹配找不到时，自动用 AI 刮削」默认开启。常规匹配没找到条目的作品，每部会自动交给 AI 识别一次（每轮最多 3 部，一次只运行一个），不会反复消耗额度；手动可以随时重试。
+
+AI 以 agent 方式工作：每一步自己决定调用哪个工具，根据结果决定下一步，最多 14 步、6 分钟。可用的工具：
+
+| 工具 | 说明 |
+| --- | --- |
+| Bangumi 搜索 / 条目详情 | 按类别限定条目类型（番剧为动画，剧集和电影另含三次元） |
+| TMDB 搜索 / 详情 | 填写 TMDB API Key 后可用，按类别搜索剧集或电影 |
+| 网络搜索 | 使用「AI 网络搜索」设置的服务，默认 Keenable（无 Key 时走免费接口） |
+| 读取网页 | 只能读取搜索结果中出现过的网址，不连接内网地址 |
+
+AI 收到的是文件夹名、最多 20 个文件名、类别、季度、年份和订阅名称。结论有三种：
+
+1. **找到数据库条目**：给出 Bangumi 或 TMDB 条目 ID。程序只接受工具确实查到过的 ID（防止编造），再按正常流程获取资料、分集标题和海报，匹配方式显示为「AI 刮削」。
+2. **数据库里没有**：用网页资料整理中文名、原名、日期和简介（资料来源显示为「AI 整理」）。海报和参考网址只接受工具结果中出现过的网址，海报经公网地址校验后下载，同样只保存 JPEG、PNG、WebP、GIF。
+3. **无法确定**：不改动现有资料，在作品页显示 AI 给出的原因。
+
+AI 刮削的结果和常规匹配一样会保留到下次扫描；「修正匹配」中的手动指定优先。
+
 ## 资料来源
 
-每个作品按以下顺序确定对应的条目：
+**番剧**按以下顺序确定对应的条目：
 
 1. 手动指定的 Bangumi 或 TMDB 条目（作品页「修正匹配」，或 `POST /api/library/{id}/match`）。
 2. 订阅上已记录的 Bangumi 条目（订阅的 `bgmId`）。
@@ -113,11 +236,17 @@
 4. 用作品名搜索 Bangumi。只接受名称或别名与作品名相互包含的结果，避免模糊搜索返回无关作品；按季度挑选续作。续作的名称里常常没有发布名使用的写法（例如繁体名只出现在第一季的别名中），只要和匹配上的第一季同名、季度一致，也会选中续作。
 5. 已填写 TMDB API Key 时搜索 TMDB 剧集。
 
+**剧集**：手动指定的条目，其次（填写了 TMDB API Key 时）搜索 TMDB 剧集，并读取该季的分集标题、简介和季海报；找不到时搜索 Bangumi（三次元与动画）。
+
+**电影**：手动指定的条目，其次（填写了 TMDB API Key 时）按名称和年份搜索 TMDB 电影；找不到时搜索 Bangumi（动画电影与三次元）。没有 TMDB API Key 时，欧美影视多半匹配不到，可以填写 Key，或使用 AI 刮削。
+
+以上方式都失败时，若开启了自动 AI 刮削，会再交给 AI 识别一次（见上文）。
+
 通过 Mikan 链接或手动确定的 Bangumi 条目会写回订阅，之后的文件夹与界面直接使用。修改订阅的 Mikan 番剧后，自动匹配结果会重新计算，手动匹配不受影响。
 
 没找到条目或请求失败时，分别在 1 小时、6 小时、1 天后重试；手动「重新获取资料」立即重试。分集标题先按季内集数匹配，再按总集数匹配，兼容字幕组续季接着上一季编号的写法。
 
-海报使用 Bangumi 的 800px 封面或 TMDB 的 w500 海报，下载时校验文件头，只保存 JPEG、PNG、WebP 和 GIF（不接受可携带脚本的 SVG），单张上限 10 MB。所有请求都经过「网络代理地址」。Bangumi 请求带有本项目的 User-Agent，符合其 API 使用要求。「修正匹配」的搜索结果缩略图由浏览器直接从 Bangumi 加载。资料来自 [Bangumi 番组计划](https://bgm.tv) 和 [TMDB](https://www.themoviedb.org)。
+海报使用 Bangumi 的 400px 封面或 TMDB 的 w342 海报（约为显示尺寸的两倍，缩小后不会出现锯齿；之前缓存的大图会自动换成这一尺寸），下载时校验文件头，只保存 JPEG、PNG、WebP 和 GIF（不接受可携带脚本的 SVG），单张上限 10 MB。所有请求都经过「网络代理地址」。Bangumi 请求带有本项目的 User-Agent，符合其 API 使用要求。「修正匹配」的搜索结果缩略图由浏览器直接从 Bangumi 加载。资料来自 [Bangumi 番组计划](https://bgm.tv) 和 [TMDB](https://www.themoviedb.org)。
 
 ## 推送中的播放链接
 
@@ -130,6 +259,8 @@
 | `数据目录/library/library.json` | 媒体库索引，与 `state.json` 分开保存；包括手动匹配和集数修正 |
 | `数据目录/library/progress.json` | 观看进度和已看标记，按视频 ID（相对路径的哈希）保存 |
 | `数据目录/library/posters/` | 海报缓存，文件名为作品 ID；作品消失后自动删除 |
+| `数据目录/library/media/` | 每个视频的 ffprobe 结果、关键帧列表、提取出的内封字幕和字体（文件夹名为视频 ID）；文件变化后重新生成，视频消失后自动删除 |
+| `数据目录/library/transcodes/` | 正在播放的转封装 / 转码分段，播放结束、闲置 2 分钟或程序重启后删除 |
 
 索引可以通过扫描重建。文件损坏时会另存为 `library.json.<时间>.corrupt`（或 `progress.json.<时间>.corrupt`）并重新建立，同时在活动记录中提示；这种情况下会丢失手动匹配、集数修正或观看记录。已不存在的视频，观看记录超过 30 天没有更新时才会在扫描中清理，文件只是暂时不可用时记录仍在。订阅备份不包含媒体库。
 
@@ -144,7 +275,7 @@
 | GET | `/api/library` | 状态、继续观看与作品列表（标题、季度、海报地址、集数、已看集数、匹配状态等） |
 | GET | `/api/library/status` | 作品数、视频数、各匹配状态数量、上次扫描时间 |
 | POST | `/api/library/scan` | 立即扫描并返回状态；新作品的资料在后台获取 |
-| GET | `/api/library/search?q=` | 搜索 Bangumi 动画条目，用于手动匹配 |
+| GET | `/api/library/search?q=&category=` | 搜索 Bangumi 条目，用于手动匹配；`category` 为 `Anime`（默认）、`Series` 或 `Movie`，决定条目类型 |
 | GET | `/api/library/{id}` | 作品详情、Bangumi / TMDB 资料、继续播放的视频、分集（含分集标题和观看进度） |
 | GET | `/api/library/{id}/poster` | 海报图片；地址带版本号，浏览器可缓存 7 天 |
 | POST | `/api/library/{id}/match` | `{"bgmId": 400602}` 或 `{"tmdbId": 209867}` 手动匹配；两者都为空时恢复自动匹配 |
@@ -152,6 +283,7 @@
 | POST | `/api/library/{id}/watched` | `{"watched": true}` 整部作品标为已看 / 未看（花絮除外） |
 | POST | `/api/library/{id}/links` | 整部作品的外部播放链接，用于 M3U 播放列表 |
 | POST | `/api/library/{id}/recognize` | 用 AI 识别未识别集数的视频 |
+| POST | `/api/library/{id}/ai-scrape` | 在后台开始 AI 刮削，返回状态；进度和结果见作品详情的 `aiScrape` |
 | DELETE | `/api/library/{id}/numbers` | 清除整部作品的集数修正，重新按文件名识别 |
 | GET | `/api/library/episodes/{id}` | 播放页数据：视频、字幕列表、上一集 / 下一集、剧集列表 |
 | GET | `/api/library/episodes/{id}/stream` | 视频文件，支持 Range |
@@ -160,15 +292,23 @@
 | POST | `/api/library/episodes/{id}/watched` | `{"watched": false}` 单集标为已看 / 未看 |
 | POST | `/api/library/episodes/{id}/link` | 生成外部播放链接，返回 `url` 和 `expiresAt` |
 | POST / DELETE | `/api/library/episodes/{id}/number` | `{"number": 12.5, "kind": "Special"}` 修改集数和类型；DELETE 恢复按文件名识别 |
+| GET | `/api/library/ffmpeg?refresh=true` | ffmpeg 检测结果：是否可用、路径、版本、可用的 H.264 编码器 |
+| POST | `/api/library/ffmpeg/test` | `{"encoder": "h264_nvenc"}` 用该编码器转码 2 秒测试画面 |
+| GET | `/api/library/episodes/{id}/media` | ffprobe 读出的封装、时长、画面（编码、位深、分辨率、浏览器检测用的编码名）、音轨、字幕和字体；未启用转码或没有 ffmpeg 时 `available` 为 false |
+| GET | `/api/library/episodes/{id}/subtitles/embedded/{n}` | 第 n 条流（内封文字字幕）转换为 WebVTT |
+| POST | `/api/library/episodes/{id}/hls` | `{"mode": "copy"}`（转封装）或 `{"mode": "transcode", "height": 720, "audio": 2, "burn": "embedded:4"}` 创建播放会话，返回 HLS 播放列表地址 |
+| GET | `/api/library/hls/{会话}/index.m3u8`、`init.mp4`、`{n}.m4s` | HLS 播放列表、初始化分段和媒体分段（按需生成） |
+| DELETE | `/api/library/hls/{会话}` | 结束播放会话，停止 ffmpeg 并删除分段 |
 | GET / HEAD | `/media/{签名}/{文件名}` | 外部播放器使用的签名链接，无需登录，支持 Range；无效、过期或已撤销时返回 404 |
 
-作品状态 `status` 为 `Pending`（待获取）、`Matched`（已匹配）、`Unmatched`（未找到）、`Failed`（获取失败，`error` 中有原因）；`matchedBy` 为 `Manual`、`Subscription`、`Mikan` 或 `Search`。视频类型 `kind` 为 `Episode`、`Special`、`Extra`；`numberSource` 为空（按文件名识别）、`manual` 或 `ai`。
+作品状态 `status` 为 `Pending`（待获取）、`Matched`（已匹配）、`Unmatched`（未找到）、`Failed`（获取失败，`error` 中有原因）；`matchedBy` 为 `Manual`、`Subscription`、`Mikan`、`Search` 或 `Ai`；`category` 为 `Anime`、`Series` 或 `Movie`。视频类型 `kind` 为 `Episode`、`Special`、`Extra`；`numberSource` 为空（按文件名识别）、`manual` 或 `ai`。
 
 ## 限制
 
-- 只扫描本地节点的下载目录。远程节点的文件 Web 服务读不到；以后会支持把远程目录挂载到本机后做路径映射。
+- 只扫描本机的目录（本地下载目录和添加的媒体目录）。远程节点下载的文件，可以把它的下载目录挂载到本机后作为媒体目录添加。
 - 订阅目录在下载目录之外时不会被扫描。浏览器取回文件同样只限下载目录内的文件。
-- 不转码：浏览器放不了的编码需要外部播放器。ASS 特效、MKV 内封字幕和多音轨切换同样需要外部播放器。
+- 没有 ffmpeg 时不转码：浏览器放不了的编码、ASS 特效、内封字幕和多音轨切换都需要外部播放器。有 ffmpeg 时，转码速度取决于服务器 CPU / 显卡；不做 HDR 色调映射（番剧很少用到）。
+- 外部播放器链接始终指向原文件，不经过转码。
 - 观看进度保存在服务端，不区分设备或浏览器；本应用只有一个账号。
 - 不写入 NFO，也不改文件名，因此不影响做种，也不会与 Jellyfin / Emby 的整理冲突。
 
@@ -178,5 +318,5 @@
 | --- | --- | --- |
 | 第一阶段：数据打通 | 订阅记录 Mikan / Bangumi / TMDB ID；独立索引；扫描与集数识别；下载完成入库；资料与海报 | 已完成 |
 | 第二阶段：海报墙与播放 | 媒体库页（海报墙、继续观看、作品页、修正匹配）；播放页（直接播放、进度、下一集、快捷键）；外部播放器签名链接与 M3U；SRT / ASS 外挂字幕；集数修正与 AI 识别；推送附带播放链接 | 已完成 |
-| 第三阶段：兼容性 | 可选 ffmpeg：用 ffprobe 判断能否直接播放，按需转封装或转码；提取内封字幕；HLS；完整 ASS 渲染 | 未开始 |
+| 第三阶段：兼容性 | 可选 ffmpeg：ffprobe 分析并由浏览器判断能否直接播放；HLS 转封装 / 转码与拖动；音轨切换；内封字幕提取；烧录字幕（完整 ASS 特效）；硬件编码器 | 已完成 |
 | 第四阶段：生态联动 | 写 NFO；通知 Jellyfin / Emby / Plex 刷新；在 Jellyfin 中打开 | 未开始 |

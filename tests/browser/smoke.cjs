@@ -277,6 +277,7 @@ const root = path.resolve(__dirname, '../..');
     await page.locator('[data-delete-ai]').click();
     await page.locator('#ai .empty-state').filter({hasText:'尚未配置 AI 接口'}).waitFor();
     await require('./library-player.cjs')(page,info,browser);
+    await require('./library-transcode.cjs')(page,info);
     await page.setViewportSize({width:390,height:844});
     for (const tab of ['downloads','subscriptions','anime','library','activity','settings']) {
       await page.locator('nav a[data-page=' + tab + ']').click();

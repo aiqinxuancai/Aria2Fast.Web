@@ -41,6 +41,10 @@ builder.Services.AddSingleton<LibraryStore>();
 builder.Services.AddSingleton<PlaybackStore>();
 builder.Services.AddSingleton<MediaLinks>();
 builder.Services.AddSingleton<PlaybackService>();
+builder.Services.AddSingleton<FfmpegService>();
+builder.Services.AddSingleton<MediaAnalyzer>();
+builder.Services.AddSingleton<HlsService>();
+builder.Services.AddHostedService(p => p.GetRequiredService<HlsService>());
 builder.Services.AddSingleton<BangumiClient>();
 builder.Services.AddSingleton<TmdbClient>();
 builder.Services.AddSingleton<LibraryService>();
@@ -78,7 +82,7 @@ app.Use(async (context, next) =>
 {
     context.Response.Headers.XContentTypeOptions = "nosniff";
     context.Response.Headers["Referrer-Policy"] = "same-origin";
-    context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: http: data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'";
+    context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: http: data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'";
     if (context.Request.Path.StartsWithSegments("/api"))
     {
         context.Response.Headers.CacheControl = "no-store";

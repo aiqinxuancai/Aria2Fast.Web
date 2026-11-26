@@ -24,6 +24,11 @@ public sealed class LibrarySeries
     /// <summary>Relative to the download root, '/'-separated; empty for loose files in the root.</summary>
     public string Directory { get; set; } = "";
     public int Season { get; set; }
+    /// <summary>The library folder (settings) the work was found in, and that folder's category.</summary>
+    public string FolderId { get; set; } = "";
+    public LibraryCategory Category { get; set; }
+    /// <summary>Release year parsed from a movie's folder or file name, used when searching.</summary>
+    public int? Year { get; set; }
     public string? SubscriptionId { get; set; }
     public string? MikanId { get; set; }
     public int? BgmId { get; set; }
@@ -36,12 +41,14 @@ public sealed class LibrarySeries
     public int Attempts { get; set; }
     public DateTimeOffset? NextAttempt { get; set; }
     public LibraryMetadata? Metadata { get; set; }
+    /// <summary>When the AI agent last tried this work automatically; it is not tried again automatically.</summary>
+    public DateTimeOffset? AiTriedAt { get; set; }
     public DateTimeOffset AddedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
 public enum LibraryMetadataStatus { Pending, Matched, Unmatched, Failed }
-public enum LibraryMatchSource { Manual, Subscription, Mikan, Search }
+public enum LibraryMatchSource { Manual, Subscription, Mikan, Search, Ai }
 public enum LibraryEpisodeKind { Episode, Special, Extra }
 
 public sealed class LibraryEpisode
@@ -59,7 +66,7 @@ public sealed class LibraryEpisode
     public DateTimeOffset AddedAt { get; set; }
 }
 
-/// <summary>Source is "bangumi" or "tmdb"; SourceId is that site's subject / TV ID.</summary>
+/// <summary>Source is "bangumi", "tmdb" (TV), "tmdb-movie" or "ai" (assembled by the AI agent, SourceId 0); SourceId is that site's ID.</summary>
 public sealed record LibraryMetadata(string Source, int SourceId, string Name, string NameCn, string Summary, string AirDate, double? Score, int? TotalEpisodes, string Platform)
 {
     public string PosterUrl { get; init; } = "";
@@ -67,6 +74,8 @@ public sealed record LibraryMetadata(string Source, int SourceId, string Name, s
     public string PosterFile { get; init; } = "";
     public List<LibraryEpisodeMeta> Episodes { get; init; } = [];
     public DateTimeOffset UpdatedAt { get; init; }
+    /// <summary>For metadata the AI agent assembled ("ai"): the page it relied on.</summary>
+    public string Reference { get; init; } = "";
 }
 
 /// <summary>Number is the episode within the subject (Bangumi "ep"); Sort may continue across seasons. Type 0 is a main episode, 1 a special.</summary>

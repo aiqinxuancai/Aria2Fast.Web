@@ -120,6 +120,38 @@ public sealed class WebFetchService
         return Replace(WebUtility.HtmlDecode(html), @"\s+", " ").Trim();
     }
 
+    /// <summary>Downloads a file (e.g. a poster an AI agent found) from public addresses only, following at most five redirects.</summary>
+    public async Task<byte[]> DownloadAsync(string url, int maxBytes, CancellationToken cancellationToken = default)
+    {
+        var uri = ValidateUrl(url);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        for (var redirects = 0; ; redirects++)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+            request.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36");
+            using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            if ((int)response.StatusCode is 301 or 302 or 303 or 307 or 308)
+            {
+                if (redirects >= 5 || response.Headers.Location is not { } location) throw new InvalidOperationException("Too many or invalid redirects.");
+                uri = ValidateUrl(new Uri(uri, location).ToString());
+                continue;
+            }
+            response.EnsureSuccessStatusCode();
+            if (response.Content.Headers.ContentLength > maxBytes) throw new InvalidDataException("File is too large.");
+            await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
+            using var buffer = new MemoryStream();
+            var chunk = new byte[81920];
+            int read;
+            while ((read = await stream.ReadAsync(chunk, timeout.Token)) > 0)
+            {
+                if (buffer.Length + read > maxBytes) throw new InvalidDataException("File is too large.");
+                buffer.Write(chunk, 0, read);
+            }
+            return buffer.ToArray();
+        }
+    }
+
     public static Uri ValidateUrl(string url)
     {
         if (!Uri.TryCreate(url?.Trim(), UriKind.Absolute, out var uri)

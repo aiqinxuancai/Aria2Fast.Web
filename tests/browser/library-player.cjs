@@ -62,7 +62,7 @@ module.exports=async(page,info,browser)=>{
   assert.deepEqual(await page.evaluate(()=>[...document.querySelector('#player').textTracks].map(t=>t.label+'|'+t.mode)),['简体中文 · ASS|showing','繁體中文 · SRT|disabled']);
   await page.waitForFunction(()=>[...document.querySelector('#player').textTracks].find(t=>t.mode==='showing')?.cues?.length>0);
   assert.deepEqual(await page.evaluate(()=>{const c=[...document.querySelector('#player').textTracks].find(t=>t.mode==='showing').cues[0];return [c.text,c.line];}),['简体字幕\n第二行',0]);
-  await page.locator('#player-subtitle').selectOption('1');
+  await page.locator('#player-subtitle').selectOption('t1');
   assert.equal(await page.evaluate(()=>localStorage.getItem('aria2fast.subtitle')),JSON.stringify({language:'zh-Hant',label:'繁體中文'}));
   fs.mkdirSync(path.join(root,'artifacts/screenshots'),{recursive:true});
   await page.screenshot({path:path.join(root,'artifacts/screenshots/library-player.png')});
@@ -119,4 +119,27 @@ module.exports=async(page,info,browser)=>{
   await page.goto(info.base+'/#play/0123456789abcdef');
   await page.locator('.callout.error',{hasText:'视频不存在'}).waitFor();
   await api('/subscriptions/'+sub.id,'DELETE');
+
+  // A movie in the default movies folder: category tabs on the wall, a file list instead of episodes, the movie title in the player.
+  const movieFolder=path.join(downloads,'movies','测试电影 (2021)');
+  fs.mkdirSync(movieFolder,{recursive:true});
+  fs.copyFileSync(first,path.join(movieFolder,'Test.Movie.2021.1080p.webm'));
+  await api('/library/scan','POST');
+  await page.goto(info.base+'/#library');
+  await page.locator('#library-categories [data-category=Movie]').click();
+  const movieCard=page.locator('.library-card',{hasText:'测试电影'});
+  await movieCard.waitFor();
+  assert.equal(await page.locator('.library-card').count(),1);
+  assert.match(await movieCard.locator('small').innerText(),/^电影 · 2021/);
+  await page.screenshot({path:path.join(root,'artifacts/screenshots/library-movies.png'),fullPage:true});
+  await movieCard.click();
+  await page.locator('.library-hero h1',{hasText:'测试电影'}).waitFor();
+  assert.equal(await page.locator('.panel-head h2',{hasText:'视频文件'}).count(),1);
+  assert.equal(await page.locator('[data-number]').count(),0);
+  await page.locator('.library-actions a.primary').click();
+  await page.locator('.player-title h1',{hasText:'测试电影'}).waitFor();
+  assert.equal(await page.locator('.player-title .eyebrow').innerText(),'电影');
+  await page.locator('#library-categories').count();
+  await page.goto(info.base+'/#library');
+  await page.locator('#library-categories [data-category=all]').click();
 };

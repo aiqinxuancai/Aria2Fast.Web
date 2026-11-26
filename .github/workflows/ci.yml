@@ -22,6 +22,8 @@ jobs:
           python-version: '3.x'
       - run: dotnet build -c Release
       - run: dotnet run --project tests/Aria2Fast.Web.Tests -c Release --no-build
+      - name: Install ffmpeg for media library transcoding tests
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: python tests/integration.py
       - run: python tests/desktop_startup.py
       - run: python tests/test_bundle_macos.py

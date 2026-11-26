@@ -6,18 +6,22 @@ namespace Aria2Fast.Web.Services;
 /// <summary>Playing library videos: the player page, streaming, subtitles, progress and links for external players.</summary>
 public sealed class PlaybackService(StateStore store, LibraryStore library, PlaybackStore playback, MediaLinks links)
 {
-    /// <summary>The episode and its file, which must still be inside the download directory.</summary>
+    /// <summary>The episode and its file, which must still be inside its library folder.</summary>
     public (LibraryEpisode Episode, string File) Resolve(string id)
     {
         var episode = library.Query(s => s.Episodes.FirstOrDefault(e => e.Id == id)) ?? throw new FileNotFoundException("视频不存在或已被移除");
-        return (episode, Locate(episode, Root()));
+        return (episode, Locate(episode, Folders()));
     }
 
-    private string Root() => Path.GetFullPath(store.Read().Settings.DownloadDirectory);
-
-    private static string Locate(LibraryEpisode episode, string root)
+    private (string Root, List<LibraryFolders.Folder> Folders) Folders()
     {
-        var file = Validation.LocalFile(root, Path.Combine(root, episode.Path));
+        var settings = store.Read().Settings;
+        return (settings.DownloadDirectory, LibraryFolders.Resolve(settings.Library, settings.DownloadDirectory));
+    }
+
+    private static string Locate(LibraryEpisode episode, (string Root, List<LibraryFolders.Folder> Folders) folders)
+    {
+        var file = LibraryFolders.Locate(episode.Path, folders.Folders, folders.Root);
         return File.Exists(file) ? file : throw new FileNotFoundException("视频文件不存在，可能已被移动或删除，请重新扫描媒体库");
     }
 
@@ -33,7 +37,7 @@ public sealed class PlaybackService(StateStore store, LibraryStore library, Play
         return new
         {
             episode = LibraryService.EpisodeItem(episode, series.Metadata, progress),
-            series = new { series.Id, title = LibraryService.DisplayTitle(series), series.Season, poster = LibraryService.PosterUrl(series) },
+            series = new { series.Id, title = LibraryService.DisplayTitle(series), series.Season, series.Category, poster = LibraryService.PosterUrl(series) },
             stream = $"/api/library/episodes/{id}/stream", type = ContentType(file),
             subtitles = Subtitles.Find(file, episode.Number).Select((t, i) => new { index = i, t.Label, t.Language, t.Format, url = $"/api/library/episodes/{id}/subtitles/{i}" }),
             previous = previous?.Id, next = next?.Id,
@@ -53,7 +57,8 @@ public sealed class PlaybackService(StateStore store, LibraryStore library, Play
         var (episode, file) = Resolve(id);
         var tracks = Subtitles.Find(file, episode.Number);
         if (index < 0 || index >= tracks.Count) throw new FileNotFoundException("字幕不存在");
-        var path = Validation.LocalFile(Root(), tracks[index].Path);
+        // Subtitles are found beside the video or in a Subs folder below it.
+        var path = Validation.LocalFile(Path.GetDirectoryName(file)!, tracks[index].Path);
         if (new FileInfo(path).Length > Subtitles.SizeLimit) throw new ArgumentException("字幕文件超过 10 MB");
         return Subtitles.ToVtt(File.ReadAllBytes(path), Path.GetExtension(path));
     }
@@ -113,12 +118,12 @@ public sealed class PlaybackService(StateStore store, LibraryStore library, Play
     public object SeriesLinks(string seriesId)
     {
         var (series, list) = Series(seriesId);
-        var root = Root();
+        var folders = Folders();
         var items = new List<object>();
         foreach (var episode in list)
         {
             string file;
-            try { file = Locate(episode, root); }
+            try { file = Locate(episode, folders); }
             catch (Exception ex) when (ex is FileNotFoundException or ArgumentException) { continue; }
             var item = LibraryService.EpisodeInfo(series.Metadata, episode);
             items.Add(new { episodeId = episode.Id, episode.Number, episode.Kind, title = item == null ? "" : item.NameCn.Length > 0 ? item.NameCn : item.Name, name = Path.GetFileName(file), url = MediaUrl(episode.Id, file) });

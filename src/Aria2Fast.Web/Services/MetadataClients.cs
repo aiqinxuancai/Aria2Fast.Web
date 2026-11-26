@@ -13,17 +13,20 @@ public sealed class BangumiClient(StateStore store, HttpGateway http)
     private const string UserAgent = "aiqinxuancai/Aria2Fast.Web (https://github.com/aiqinxuancai/Aria2Fast.Web)";
     private string Root => store.Read().Settings.Library.BangumiApiUrl.TrimEnd('/');
 
-    public async Task<int?> Find(IEnumerable<string> terms, int season, CancellationToken ct)
+    /// <summary>Bangumi subject types: 2 is anime (including anime films), 6 live action (TV dramas and films).</summary>
+    public static int[] Types(LibraryCategory category) => category switch { LibraryCategory.Series => [6, 2], LibraryCategory.Movie => [2, 6], _ => [2] };
+
+    public async Task<int?> Find(IEnumerable<string> terms, int season, CancellationToken ct, int[]? types = null)
     {
         foreach (var term in terms)
-            if (Pick(await Search(term, ct, 10), term, season) is { } id) return id;
+            if (Pick(await Search(term, ct, 10, types), term, season) is { } id) return id;
         return null;
     }
 
-    public async Task<List<BangumiCandidate>> Search(string keyword, CancellationToken ct, int limit = 20)
+    public async Task<List<BangumiCandidate>> Search(string keyword, CancellationToken ct, int limit = 20, int[]? types = null)
     {
         using var client = Client();
-        using var response = await client.PostAsJsonAsync(Validation.HttpUrl(Root + "/v0/search/subjects?limit=" + limit), new { keyword, filter = new { type = new[] { 2 } } }, ct);
+        using var response = await client.PostAsJsonAsync(Validation.HttpUrl(Root + "/v0/search/subjects?limit=" + limit), new { keyword, filter = new { type = types ?? [2] } }, ct);
         response.EnsureSuccessStatusCode();
         return ParseSearch(JsonNode.Parse(await response.Content.ReadAsStringAsync(ct)));
     }
@@ -44,7 +47,8 @@ public sealed class BangumiClient(StateStore store, HttpGateway http)
     public static LibraryMetadata ParseSubject(JsonNode subject)
     {
         var images = subject["images"] as JsonObject;
-        var poster = new[] { "medium", "large", "common" }.Select(size => JsonText.String(images?[size])).FirstOrDefault(url => url.Length > 0) ?? "";
+        // 400 px wide: about twice the size posters are shown at. Larger covers shrink four-fold or more on screen and look jagged.
+        var poster = new[] { "common", "medium", "large" }.Select(size => JsonText.String(images?[size])).FirstOrDefault(url => url.Length > 0) ?? "";
         var score = JsonText.Number(subject["rating"]?["score"]);
         var total = JsonText.Number(subject["total_episodes"]) ?? JsonText.Number(subject["eps"]);
         return new("bangumi", (int)(JsonText.Number(subject["id"]) ?? throw new InvalidDataException("Bangumi 条目缺少 ID")),
@@ -119,27 +123,66 @@ public sealed class BangumiClient(StateStore store, HttpGateway http)
     }
 }
 
-/// <summary>TMDB TV search, used when Bangumi has no match and a TMDB API key is configured.</summary>
+/// <summary>TMDB TV and movie lookups, used when a TMDB API key is configured (first for series and movies, after Bangumi for anime).</summary>
 public sealed class TmdbClient(StateStore store, HttpGateway http)
 {
     private const string Root = "https://api.themoviedb.org/3";
+    private const string Images = "https://image.tmdb.org/t/p/w342";
     private string Key => store.Read().Settings.TmdbApiKey;
     public bool Configured => !string.IsNullOrWhiteSpace(Key);
 
-    public async Task<LibraryMetadata?> Search(IEnumerable<string> terms, CancellationToken ct)
+    /// <summary>First TV result for any of the terms, with the season's episode titles.</summary>
+    public async Task<LibraryMetadata?> Search(IEnumerable<string> terms, CancellationToken ct, int season = 0)
+    {
+        foreach (var term in terms)
+            if ((await Get($"/search/tv?query={Uri.EscapeDataString(term)}", ct))?["results"] is JsonArray { Count: > 0 } results && JsonText.Number(results[0]?["id"]) is double id)
+                return await Tv((int)id, ct, season);
+        return null;
+    }
+
+    /// <summary>A show; for a season above zero also that season's episodes and poster (each season is its own work here).</summary>
+    public async Task<LibraryMetadata> Tv(int id, CancellationToken ct, int season = 0)
+    {
+        if (!Configured) throw new ArgumentException("请先在设置中填写 TMDB API Key");
+        var show = Parse(await Get($"/tv/{id}", ct) ?? throw new InvalidDataException("TMDB 未返回剧集信息"));
+        if (season <= 0) return show with { UpdatedAt = DateTimeOffset.UtcNow };
+        try { return WithSeason(show, await Get($"/tv/{id}/season/{season}", ct) ?? throw new InvalidDataException("TMDB 未返回季信息")) with { UpdatedAt = DateTimeOffset.UtcNow }; }
+        catch (FileNotFoundException) { return show with { UpdatedAt = DateTimeOffset.UtcNow }; } // the show has no such season on TMDB
+    }
+
+    public async Task<LibraryMetadata?> SearchMovie(IEnumerable<string> terms, int? year, CancellationToken ct)
     {
         foreach (var term in terms)
         {
-            var json = JsonNode.Parse(await http.GetTextAsync($"{Root}/search/tv?language=zh-CN&query={Uri.EscapeDataString(term)}&api_key={Uri.EscapeDataString(Key)}", ct));
-            if ((json?["results"] as JsonArray)?.FirstOrDefault() is JsonObject result) return Parse(result);
+            // With a year first, then without: release years differ between countries.
+            foreach (var withYear in year == null ? [false] : new[] { true, false })
+                if ((await Get($"/search/movie?query={Uri.EscapeDataString(term)}" + (withYear ? $"&year={year}" : ""), ct))?["results"] is JsonArray { Count: > 0 } results && JsonText.Number(results[0]?["id"]) is double id)
+                    return await Movie((int)id, ct);
         }
         return null;
     }
 
-    public async Task<LibraryMetadata> Tv(int id, CancellationToken ct)
+    /// <summary>Search results for the AI agent to choose from: movies or TV shows.</summary>
+    public async Task<List<TmdbCandidate>> Candidates(string query, bool movie, int? year, CancellationToken ct)
+    {
+        var path = (movie ? "/search/movie" : "/search/tv") + "?query=" + Uri.EscapeDataString(query) + (year is { } y ? (movie ? "&year=" : "&first_air_date_year=") + y : "");
+        return ((await Get(path, ct))?["results"] as JsonArray ?? []).OfType<JsonObject>().Where(r => JsonText.Number(r["id"]) is not null)
+            .Select(r => new TmdbCandidate((int)JsonText.Number(r["id"])!, JsonText.String(r[movie ? "title" : "name"]), JsonText.String(r[movie ? "original_title" : "original_name"]),
+                JsonText.String(r[movie ? "release_date" : "first_air_date"]), JsonText.String(r["overview"]))).ToList();
+    }
+
+    public async Task<LibraryMetadata> Movie(int id, CancellationToken ct)
     {
         if (!Configured) throw new ArgumentException("请先在设置中填写 TMDB API Key");
-        return Parse(JsonNode.Parse(await http.GetTextAsync($"{Root}/tv/{id}?language=zh-CN&api_key={Uri.EscapeDataString(Key)}", ct)) ?? throw new InvalidDataException("TMDB 未返回剧集信息"));
+        return ParseMovie(await Get($"/movie/{id}", ct) ?? throw new InvalidDataException("TMDB 未返回电影信息")) with { UpdatedAt = DateTimeOffset.UtcNow };
+    }
+
+    /// <summary>Simplified Chinese details; the key travels in the query string and never appears in errors.</summary>
+    private async Task<JsonNode?> Get(string path, CancellationToken ct)
+    {
+        try { return JsonNode.Parse(await http.GetTextAsync(Root + path + (path.Contains('?') ? "&" : "?") + "language=zh-CN&api_key=" + Uri.EscapeDataString(Key.Trim()), ct)); }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound) { throw new FileNotFoundException("TMDB 条目不存在"); }
+        catch (HttpRequestException ex) { throw new HttpRequestException("TMDB 请求失败" + (ex.StatusCode is { } code ? "：HTTP " + (int)code : ""), null, ex.StatusCode); }
     }
 
     public static LibraryMetadata Parse(JsonNode tv)
@@ -149,7 +192,34 @@ public sealed class TmdbClient(StateStore store, HttpGateway http)
         var poster = JsonText.String(tv["poster_path"]);
         return new("tmdb", (int)(JsonText.Number(tv["id"]) ?? throw new InvalidDataException("TMDB 剧集缺少 ID")),
             JsonText.String(tv["original_name"]), JsonText.String(tv["name"]), JsonText.String(tv["overview"]), JsonText.String(tv["first_air_date"]),
-            score > 0 ? score : null, episodes > 0 ? (int)episodes : null, "TV") { PosterUrl = poster.Length > 0 ? "https://image.tmdb.org/t/p/w500" + poster : "" };
+            score > 0 ? score : null, episodes > 0 ? (int)episodes : null, "TV") { PosterUrl = poster.Length > 0 ? Images + poster : "" };
+    }
+
+    /// <summary>The season's episode titles, episode count, air date and poster (when it has its own) replace the show's.</summary>
+    public static LibraryMetadata WithSeason(LibraryMetadata show, JsonNode season)
+    {
+        var episodes = (season["episodes"] as JsonArray ?? []).OfType<JsonObject>()
+            .Where(e => JsonText.Number(e["episode_number"]) is > 0)
+            .Select(e => new LibraryEpisodeMeta(JsonText.Number(e["episode_number"])!.Value, JsonText.Number(e["episode_number"])!.Value, JsonText.String(e["name"]), JsonText.String(e["name"]), JsonText.String(e["air_date"])))
+            .ToList();
+        var poster = JsonText.String(season["poster_path"]);
+        var overview = JsonText.String(season["overview"]);
+        var air = JsonText.String(season["air_date"]);
+        return show with
+        {
+            Summary = overview.Length > 0 ? overview : show.Summary, AirDate = air.Length > 0 ? air : show.AirDate,
+            TotalEpisodes = episodes.Count > 0 ? episodes.Count : show.TotalEpisodes, Episodes = episodes,
+            PosterUrl = poster.Length > 0 ? Images + poster : show.PosterUrl
+        };
+    }
+
+    public static LibraryMetadata ParseMovie(JsonNode movie)
+    {
+        var score = JsonText.Number(movie["vote_average"]);
+        var poster = JsonText.String(movie["poster_path"]);
+        return new("tmdb-movie", (int)(JsonText.Number(movie["id"]) ?? throw new InvalidDataException("TMDB 电影缺少 ID")),
+            JsonText.String(movie["original_title"]), JsonText.String(movie["title"]), JsonText.String(movie["overview"]), JsonText.String(movie["release_date"]),
+            score > 0 ? score : null, null, "电影") { PosterUrl = poster.Length > 0 ? Images + poster : "" };
     }
 }
 

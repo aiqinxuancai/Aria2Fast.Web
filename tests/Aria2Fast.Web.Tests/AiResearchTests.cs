@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Aria2Fast.Web.Infrastructure;
@@ -115,16 +115,39 @@ static class AiResearchTests
                 var result = await tools.Search("原作 author", provider, default);
                 Check(result.Single().Content == "Fact" && result.Single().Title == "Official");
             });
-        await Test("Search automatically falls back across all four configured providers", async () =>
+        await Test("Search automatically falls back across Keenable and all four configured providers", async () =>
         {
             var hosts = new List<string>();
             var tools = new ResearchSearchTools(new() { BraveApiKey = "b", SerperApiKey = "s", SerpApiKey = "p", TavilyApiKey = "t" },
                 () => new HttpClient(new Handler(request =>
                 {
                     hosts.Add(request.RequestUri!.Host);
-                    return Task.FromResult(new HttpResponseMessage(hosts.Count == 4 ? HttpStatusCode.OK : HttpStatusCode.TooManyRequests) { Content = new StringContent(fixtures["tavily"]) });
+                    return Task.FromResult(new HttpResponseMessage(hosts.Count == 5 ? HttpStatusCode.OK : HttpStatusCode.TooManyRequests) { Content = new StringContent(fixtures["tavily"]) });
                 })));
-            Check((await tools.Search("原作作者", "auto", default)).Count == 1 && hosts.Count == 4);
+            Check(tools.Providers.SequenceEqual(["keenable", "brave", "serper", "serpapi", "tavily"]));
+            Check((await tools.Search("原作作者", "auto", default)).Count == 1 && hosts.Count == 5 && hosts[0] == "api.keenable.ai" && hosts[4] == "api.tavily.com");
+        });
+        await Test("Keenable: keyless by default with an application name, keyed with X-API-Key, snippet as content", async () =>
+        {
+            const string body = "{\"query\":\"q\",\"mode\":\"pro\",\"results\":[{\"title\":\"Official\",\"url\":\"https://example.com\",\"description\":\"\",\"snippet\":\"Fact\"}]}";
+            HttpRequestMessage? seen = null;
+            string? sent = null;
+            Func<HttpClient> client = () => new HttpClient(new Handler(async request =>
+            {
+                seen = request;
+                sent = await request.Content!.ReadAsStringAsync();
+                return new(HttpStatusCode.OK) { Content = new StringContent(body) };
+            }));
+            var keyless = new ResearchSearchTools(new(), client);
+            Check(keyless.Providers.SequenceEqual(["keenable"]));
+            var result = await keyless.Search("葬送的芙莉莲 原作", "keenable", default);
+            Check(result.Single() is { Title: "Official", Content: "Fact" } && seen!.RequestUri!.AbsoluteUri == "https://api.keenable.ai/v1/search/public");
+            Check(seen!.Headers.GetValues("X-Keenable-Title").Single() == "Aria2Fast.Web" && !seen.Headers.Contains("X-API-Key") && sent!.Contains("\"max_results\":5"));
+            await new ResearchSearchTools(new() { KeenableApiKey = " keen_test " }, client).Search("原作作者", "auto", default);
+            Check(seen!.RequestUri!.AbsoluteUri == "https://api.keenable.ai/v1/search" && seen.Headers.GetValues("X-API-Key").Single() == "keen_test");
+            // The preferred provider goes first; "none" switches searching off.
+            Check(new ResearchSearchTools(new() { TavilyApiKey = "t", SearchProvider = "tavily" }, client).Providers.SequenceEqual(["tavily", "keenable"]));
+            Check(new ResearchSearchTools(new() { TavilyApiKey = "t", SearchProvider = "none" }, client).Providers.Count == 0);
         });
         await Test("Web fetch extracts text, exposes truncation and rejects private redirects", async () =>
         {

@@ -6,8 +6,16 @@ COPY src/Aria2Fast.Web/ src/Aria2Fast.Web/
 RUN dotnet publish src/Aria2Fast.Web/Aria2Fast.Web.csproj -c Release --no-restore -o /out /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+# --build-arg WITH_FFMPEG=true adds the distribution's ffmpeg for remuxing / transcoding in the media library, plus VAAPI
+# drivers for hardware encoding with /dev/dri passed through (Mesa for AMD; Intel's iHD driver exists for amd64 only).
+# NVENC needs no package here: the NVIDIA Container Toolkit mounts the driver libraries at run time.
+ARG WITH_FFMPEG=false
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends aria2 ca-certificates curl tini \
+    && if [ "$WITH_FFMPEG" = "true" ]; then \
+         apt-get install -y --no-install-recommends ffmpeg mesa-va-drivers \
+         && if [ "$(dpkg --print-architecture)" = "amd64" ]; then apt-get install -y --no-install-recommends intel-media-va-driver; fi; \
+       fi \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /data /downloads && chown -R app:app /data /downloads
 WORKDIR /app

@@ -10,5 +10,7 @@
 - HtmlAgilityPack：MIT，https://github.com/zzzprojects/html-agility-pack。
 - Aliyun OSS .NET SDK：Apache-2.0，https://github.com/aliyun/aliyun-oss-csharp-sdk。
 - ASP.NET Core / .NET：MIT，https://github.com/dotnet/aspnetcore。
+- hls.js 1.7.4（light 构建的 ES 模块，wwwroot/vendor/hls.light.esm.js，未修改，SHA-256 3d82a88cf9ae0d9aaab3cbe9ff6ecbb64bb89c54a399c34ae9bf8b559baeb20f）：Apache-2.0，https://github.com/video-dev/hls.js ，许可证见 wwwroot/vendor/hls.js-LICENSE.txt。
+- FFmpeg 不随本项目分发，由用户自行安装（LGPL / GPL，取决于构建）。Docker 镜像只有在构建参数 WITH_FFMPEG=true 时才安装发行版的 ffmpeg 软件包，其版权信息位于容器 /usr/share/doc/ffmpeg/copyright。
 
 Mikan、TMDB、Tavily、PushDeer、Bark、AI 服务均为可选外部服务，内容与商标归各自权利人。TMDB 集成使用 TMDB API，本应用未获 TMDB 认可或认证。
