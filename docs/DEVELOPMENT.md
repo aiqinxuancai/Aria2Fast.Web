@@ -29,12 +29,12 @@ Aria2Fast Web 由桌面版 [Aria2Fast](https://github.com/aiqinxuancai/Aria2Fast
 
 ## README 截图
 
-README 中的截图由真实前端配合演示数据生成，作品名、海报和评析内容均为虚构：
+README 中的截图由真实前端配合演示数据生成，作品名、海报、背景图、视频画面和评析内容均为虚构：
 
     dotnet build -c Release
     node tests/browser/readme-screenshots.cjs
 
-截图输出到 `docs/images`。界面有明显变化时重新运行即可。
+截图输出到 `docs/images`；设置 `SHOTS_OUT` 可以输出到其他目录预览。播放器截图需要 ffmpeg（在 PATH 中，或用 `FFMPEG` 指定 ffmpeg 可执行文件）把演示画面生成一段 24 分钟的 WebM。界面有明显变化时重新运行即可。
 
 ## GitHub Actions 发布
 

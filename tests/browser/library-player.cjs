@@ -34,16 +34,23 @@ module.exports=async(page,info,browser)=>{
   const card=page.locator('.library-card',{hasText:'测试番剧中文名'});
   await card.waitFor();
   assert.equal(await page.locator('nav a[data-page=library]').getAttribute('class'),'active');
-  assert.equal(await page.locator('#library-continue').innerHTML(),'');
+  // Home: a tile per kind and the latest works; nothing played yet, so no continue watching or up next.
+  assert.deepEqual(await page.locator('.shelf-head h2').allInnerTexts(),['我的媒体','最近添加的番剧 ›']);
+  assert.equal(await page.locator('.media-tile',{hasText:'番剧'}).locator('small').innerText(),'2 部作品');
+  assert.equal(await page.locator('.media-thumb:not(.media-tile)').count(),0);
   await page.locator('#library-search').fill('不存在的作品');
-  await page.locator('#library-grid .empty').waitFor();
+  await page.locator('#library-home .empty').waitFor();
   await page.locator('#library-search').fill('');
+  await page.locator('.shelf').first().waitFor();
+  // Every work, with sorting and filters; the work page leads back there.
+  await page.locator('a.button[href="#library/all"]').click();
   await page.locator('#library-filter').selectOption('unmatched');
   await page.locator('.library-card',{hasText:'Broken Show'}).waitFor();
   assert.equal(await card.count(),0);
   await page.locator('#library-filter').selectOption('all');
   await card.click();
   await page.locator('.library-hero h1',{hasText:'测试番剧中文名'}).waitFor();
+  assert.equal(await page.locator('.back-link').getAttribute('href'),'#library/all');
   assert.deepEqual(await page.locator('.episode-row strong').allInnerTexts(),['第一集','第二集']);
   assert.match(await page.locator('.library-source').innerText(),/Bangumi #9001.*Mikan/);
   // The 更多 menu opens over the panels below instead of being clipped by its own.
@@ -108,7 +115,7 @@ module.exports=async(page,info,browser)=>{
 
   // Back on the wall: continue with episode 2; the first is watched.
   await page.locator('nav a[data-page=library]').click();
-  await page.locator('.continue-item',{hasText:'第 2 集 · 第二集'}).waitFor();
+  await page.locator('.media-thumb',{hasText:'第 2 集 · 第二集'}).waitFor();
   await page.screenshot({path:path.join(root,'artifacts/screenshots/library-wall.png'),fullPage:true});
   await card.click();
   await page.locator('.episode-row.watched',{hasText:'第一集'}).waitFor();
@@ -131,9 +138,10 @@ module.exports=async(page,info,browser)=>{
   fs.copyFileSync(first,path.join(movieFolder,'Test.Movie.2021.1080p.webm'));
   await api('/library/scan','POST');
   await page.goto(info.base+'/#library');
-  await page.locator('#library-categories [data-category=Movie]').click();
+  await page.locator('.media-tile',{hasText:'电影'}).click();
   const movieCard=page.locator('.library-card',{hasText:'测试电影'});
   await movieCard.waitFor();
+  assert.equal(await page.locator('#library-categories a.active').innerText(),'电影 1');
   assert.equal(await page.locator('.library-card').count(),1);
   assert.match(await movieCard.locator('small').innerText(),/^电影 · 2021/);
   await page.screenshot({path:path.join(root,'artifacts/screenshots/library-movies.png'),fullPage:true});
@@ -144,7 +152,17 @@ module.exports=async(page,info,browser)=>{
   await page.locator('.library-actions a.primary').click();
   await page.locator('.player-title h1',{hasText:'测试电影'}).waitFor();
   assert.equal(await page.locator('.player-title .eyebrow').innerText(),'电影');
-  await page.locator('#library-categories').count();
+  // A shelf per kind on the home page; its heading opens the full list. No horizontal overflow on phones.
   await page.goto(info.base+'/#library');
-  await page.locator('#library-categories [data-category=all]').click();
+  await page.locator('.shelf-head a',{hasText:'最近添加的电影'}).click();
+  await page.locator('#library-categories a.active',{hasText:'电影'}).waitFor();
+  await page.locator('#library-categories a',{hasText:'全部'}).click();
+  // The rescan above fetches the anime again, so it may briefly carry its folder name.
+  await page.locator('.library-card',{hasText:'测试番剧'}).waitFor();
+  assert.equal(await page.locator('.library-card').count(),3);
+  await page.setViewportSize({width:390,height:844});
+  await page.goto(info.base+'/#library');
+  await page.locator('.media-tile').first().waitFor();
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,'Library home overflows on mobile');
+  await page.setViewportSize({width:1440,height:1000});
 };

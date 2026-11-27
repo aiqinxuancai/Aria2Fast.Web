@@ -19,10 +19,13 @@ export const episodeTitle=e=>e.number==null?e.name:episodeLabel(e)+(e.title?' ·
 // Missing or broken artwork falls back to the title card; inline onerror handlers are blocked by the CSP.
 document.addEventListener('error',e=>{
   const img=e.target;
-  if(!(img instanceof HTMLImageElement)||!img.closest('.library-card .poster,.library-hero .poster,.continue-thumb'))return;
+  if(!(img instanceof HTMLImageElement))return;
+  // Collages and thumbnails keep their plain background.
+  if(img.closest('.tile-art,.thumb-art')){img.remove();return;}
+  if(!img.closest('.library-card .poster,.library-hero .poster'))return;
   const title=img.closest('.library-card,.library-hero')?.querySelector('h3,h1')?.textContent||'';
   const card=document.createElement('div');card.className='poster-fallback';
-  if(!img.closest('.continue-thumb'))card.innerHTML='<strong>'+esc(title)+'</strong>';
+  card.innerHTML='<strong>'+esc(title)+'</strong>';
   img.replaceWith(card);
 },true);
 

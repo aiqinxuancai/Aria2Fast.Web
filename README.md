@@ -4,7 +4,7 @@
 
 # Aria2Fast Web
 
-**好看又好用的 Aria2 网页面板：下载管理、追番订阅、AI 番剧评析，电脑和手机都能用。**
+**好看又好用的 Aria2 网页面板：下载管理、追番订阅、媒体库与在线播放、AI 刮削与评析，电脑和手机都能用。**
 
 [![Release](https://img.shields.io/github/v/release/aiqinxuancai/Aria2Fast.Web?style=flat-square)](https://github.com/aiqinxuancai/Aria2Fast.Web/releases)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/aiqinxuancai/Aria2Fast.Web/pkgs/container/aria2fast.web)
@@ -24,7 +24,7 @@
 - 🔍 **发现新番**：按季度、星期浏览 Mikan 新番，显示热度和更新集数，可接入 TMDB 评分。
 - 🌐 **多源搜索补源**：一次搜索 ACG.RIP、Nyaa、动漫花园、末日动漫，还能接入 Prowlarr / Jackett 覆盖更多公开站和 PT 站；搜索结果可直接下载，或一键转为订阅。
 - 🤖 **AI 帮你挑番、整理文件**：AI 搜索资料写出番剧评析、翻译简介、按作品自动分文件夹、整理已下载文件的名称。支持 OpenAI、Claude、Gemini 及其兼容接口。
-- 🎬 **媒体库与播放**：下载完成的番剧、剧集和电影自动整理成海报墙（目录可自行添加），从 Bangumi / TMDB 获取海报、简介和分集标题，匹配不到时可让 AI 搜索识别（支持 DeepSeek 搜索与识图），并写成 NFO 与海报供 Jellyfin / Emby / Kodi 使用；浏览器里直接播放，记住进度、自动下一集，支持外挂 ASS / SRT 字幕，也能一键用 PotPlayer、IINA、Infuse、VLC 等本机播放器打开。服务器装有 ffmpeg 时，浏览器放不了的 HEVC、MKV 会自动转封装或转码，还能切换音轨、显示内封字幕、烧录 ASS 特效字幕。
+- 🎬 **媒体库与播放**：下载完成的番剧、剧集和电影自动整理成媒体库（目录可自行添加），首页参照 Jellyfin 分为「继续观看」「接下来」和各类别的「最近添加」，从 Bangumi / TMDB 获取海报、简介和分集标题，匹配不到时可让 AI 搜索识别（支持 DeepSeek 搜索与识图），并写成 NFO 与海报供 Jellyfin / Emby / Kodi 使用；浏览器里直接播放，记住进度、自动下一集，支持外挂 ASS / SRT 字幕，也能一键用 PotPlayer、IINA、Infuse、VLC 等本机播放器打开。服务器装有 ffmpeg 时，浏览器放不了的 HEVC、MKV 会自动转封装或转码，还能切换音轨、显示内封字幕、烧录 ASS 特效字幕。
 - 🔔 **下载完成提醒**：通过 PushDeer 或 Bark 推送到手机，填写访问地址后可点通知直接播放。
 - 📱 **手机也好用**：响应式布局加底部导航，浅色/深色主题可跟随系统；已完成的文件可以直接用浏览器取回。
 - 📦 **开箱即用**：Docker 一条命令部署；Windows 和 macOS 解压就能运行，已内置 aria2。
@@ -33,20 +33,34 @@
 
 <table>
   <tr>
+    <td width="50%"><img src="docs/images/library.png" alt="媒体库首页"></td>
+    <td width="50%"><img src="docs/images/player.png" alt="在线播放"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>媒体库</b>：继续观看、接下来、各类别最近添加</td>
+    <td align="center"><b>在线播放</b>：记住进度，切换字幕与音轨，需要时自动转码</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/images/library-detail.png" alt="作品详情"></td>
     <td width="50%"><img src="docs/images/anime.png" alt="发现番剧"></td>
-    <td width="50%"><img src="docs/images/anime-detail.png" alt="番剧详情与 AI 评析"></td>
   </tr>
   <tr>
+    <td align="center"><b>作品详情</b>：海报、简介、分集标题与观看进度</td>
     <td align="center"><b>发现番剧</b>：按季度、星期浏览新番</td>
-    <td align="center"><b>番剧详情</b>：TMDB 评分、AI 评析、一键订阅字幕组</td>
   </tr>
   <tr>
+    <td width="50%"><img src="docs/images/anime-detail.png" alt="番剧详情与 AI 评析"></td>
     <td width="50%"><img src="docs/images/subscriptions.png" alt="我的订阅"></td>
-    <td width="50%"><img src="docs/images/mobile.png" alt="手机界面"></td>
   </tr>
   <tr>
+    <td align="center"><b>番剧详情</b>：TMDB 评分、AI 评析、一键订阅字幕组</td>
     <td align="center"><b>我的订阅</b>：自动追更，过滤规则一目了然</td>
-    <td align="center"><b>手机界面</b>：随时随地管理下载</td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/images/mobile.png" alt="手机界面"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><b>手机界面</b>：下载、媒体库、追番随时随地</td>
   </tr>
 </table>
 
@@ -145,7 +159,7 @@ docker compose up -d
 - [部署与配置](docs/DEPLOYMENT.md)：Docker 进阶、环境变量、下载调优、网络设置、资源搜索源
 - [桌面集成](docs/DESKTOP.md)：开机自启、桌面快捷方式、端口占用处理
 - [番剧调查与评析](docs/AI-RESEARCH.md)：AI 评析的工作方式与搜索服务配置
-- [媒体库](docs/MEDIA-LIBRARY.md)：海报墙、在线播放与进度、字幕、外部播放器、ffmpeg 转封装 / 转码、集数识别与修正
+- [媒体库](docs/MEDIA-LIBRARY.md)：媒体库首页与分类、在线播放与进度、字幕、外部播放器、ffmpeg 转封装 / 转码与显卡、AI 刮削、NFO、集数识别与修正
 - [功能说明](docs/FEATURES.md)：与桌面版的功能对照
 - [开发与发布](docs/DEVELOPMENT.md)：源码运行、测试、构建与发布流程
 

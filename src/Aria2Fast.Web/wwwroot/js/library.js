@@ -1,46 +1,63 @@
 import {$,esc,state,api,run,toast,modal,closeModal,heading,empty,bytes,field} from './core.js';
 import {episodeLabel,episodeNumber,episodeTitle,clock,percent,resumable,externalMenu,bindExternal,seriesPlaylist} from './media.js';
 
-// The filter and sort survive visits to a work and back.
-const view={q:'',sort:'updated',filter:'all',category:'all'};
-let token=0;let timer=0;let overview=null;
+// The search, sort and filter survive visits to a work and back.
+const view={q:'',sort:'updated',filter:'all',from:'#library',fromLabel:'媒体库'};
+let token=0;let timer=0;let overview=null;let mode=null;let observer=null;
 const STATUS={Pending:'获取中',Unmatched:'未匹配',Failed:'获取失败'};
 const SOURCE={Manual:'手动指定',Subscription:'订阅记录',Mikan:'Mikan 番剧页',Search:'名称搜索',Ai:'AI 刮削'};
 const CATEGORY={Anime:'番剧',Series:'剧集',Movie:'电影'};
+// #library/{slug} lists every work of a kind; any other #library/{id} is a work.
+const SLUGS={all:'all',anime:'Anime',series:'Series',movie:'Movie'};
+const slug=category=>Object.keys(SLUGS).find(k=>SLUGS[k]===category);
 const SOURCES={bangumi:'Bangumi',tmdb:'TMDB','tmdb-movie':'TMDB',ai:'AI 整理'};
 const KINDS=[['Episode','正片'],['Special','特别篇'],['Extra','花絮']];
 const SORTS=[['updated','最近更新'],['played','最近观看'],['added','最近入库'],['title','名称'],['score','评分']];
 const FILTERS=[['all','全部作品'],['unwatched','有未看的集'],['unmatched','未匹配资料']];
+const LATEST=20;
 const options=(list,value)=>list.map(([v,l])=>'<option value="'+v+'"'+(v===value?' selected':'')+'>'+l+'</option>').join('');
 const scrollPositions=new Map();
+const date=v=>v?Date.parse(v):0;
+const newest=(a,b)=>date(b.updatedAt)-date(a.updatedAt);
 
 export async function library(id){
   const current=++token;
   clearTimeout(timer);
-  state.leave=()=>{clearTimeout(timer);token++;if(!id)scrollPositions.set('wall',scrollY);};
-  if(id)return detail(id,current);
+  const list=!id||Object.hasOwn(SLUGS,id),key=id||'home';
+  state.leave=()=>{clearTimeout(timer);observer?.disconnect();token++;if(list)scrollPositions.set(key,scrollY);};
+  if(!list)return detail(id,current);
+  const filter=new URLSearchParams(location.hash.split('?')[1]||'').get('filter');
+  if(filter&&FILTERS.some(([v])=>v===filter))view.filter=filter;
+  mode=id?SLUGS[id]:null;
+  view.from='#library'+(id?'/'+id:'');view.fromLabel=!mode?'媒体库':mode==='all'?'全部作品':CATEGORY[mode];
   await wall(current);
-  // Coming back from a work returns to the same place on the wall.
-  if(current===token)scrollTo(0,scrollPositions.get('wall')||0);
+  // Coming back from a work returns to the same place.
+  if(current===token)scrollTo(0,scrollPositions.get(key)||0);
 }
 
+/** The home page (shelves, as on Jellyfin's home screen) or the full list of one kind of work. */
 async function wall(current){
   const data=await api('/library');
   if(current!==token)return;
-  const s=data.status;
-  $('#content').innerHTML=heading('媒体库','下载完成的视频自动整理成海报墙，点开就能播放。',s.enabled?'<button id="library-scan">↻ 扫描媒体目录</button>':'')+'<div id="library-body"></div>';
+  const s=data.status,home=!mode;
+  const search='<input id="library-search" type="search" class="search" placeholder="搜索作品…" aria-label="搜索媒体库" value="'+esc(view.q)+'">';
+  const actions=s.enabled?(home?search+'<a class="button" href="#library/all">全部作品</a>':'')+'<button id="library-scan">↻ 扫描媒体目录</button>':'';
+  $('#content').innerHTML=(home?'':'<a class="back-link" href="#library">← 媒体库</a>')+heading(view.fromLabel,home?'下载完成的视频自动整理成海报墙，点开就能播放。':'',actions)+'<div id="library-body"></div>';
   if(!s.enabled){$('#library-body').innerHTML='<div class="callout">媒体库已关闭，可以在 <a href="#settings">设置中心 → 媒体库</a> 中启用。</div>';return;}
-  $('#library-body').innerHTML='<div id="library-notice"></div><section id="library-continue" aria-label="继续观看"></section><div id="library-categories" class="tabs library-categories" role="tablist" aria-label="类别"></div><div class="library-tools"><input id="library-search" type="search" class="search" placeholder="搜索作品…" aria-label="搜索媒体库" value="'+esc(view.q)+'"><select id="library-sort" aria-label="排序">'+options(SORTS,view.sort)+'</select><select id="library-filter" aria-label="筛选">'+options(FILTERS,view.filter)+'</select></div><div id="library-grid"></div>';
-  $('#library-search').oninput=e=>{view.q=e.target.value;grid();};
-  $('#library-sort').onchange=e=>{view.sort=e.target.value;grid();};
-  $('#library-filter').onchange=e=>{view.filter=e.target.value;grid();};
-  $('#library-categories').onclick=e=>{const b=e.target.closest('[data-category]');if(b){view.category=b.dataset.category;tabs();grid();}};
+  $('#library-body').innerHTML='<div id="library-notice"></div>'+(home?'<div id="library-home"></div>':
+    '<div id="library-categories" class="tabs library-categories" role="navigation" aria-label="类别"></div><div class="library-tools">'+search+'<select id="library-sort" aria-label="排序">'+options(SORTS,view.sort)+'</select><select id="library-filter" aria-label="筛选">'+options(FILTERS,view.filter)+'</select></div><div id="library-grid"></div>');
+  const redraw=()=>home?shelves():grid();
+  $('#library-search').oninput=e=>{view.q=e.target.value;redraw();};
+  if(!home){
+    $('#library-sort').onchange=e=>{view.sort=e.target.value;grid();};
+    $('#library-filter').onchange=e=>{view.filter=e.target.value;grid();};
+  }
   $('#library-scan').onclick=e=>run(async()=>{const r=await api('/library/scan','POST');toast('扫描完成 · '+r.series+' 部作品，'+r.episodes+' 个视频');await refresh(current);},e.currentTarget);
   show(data,current);
 }
 
 async function refresh(current){
-  try{const data=await api('/library');if(current===token&&$('#library-grid'))show(data,current);}catch{}
+  try{const data=await api('/library');if(current===token&&$('#library-body'))show(data,current);}catch{}
 }
 
 function show(data,current){
@@ -50,46 +67,89 @@ function show(data,current){
   if(s.warning)notices.push('<div class="callout error">'+esc(s.warning)+'</div>');
   if(s.fetchMetadata&&s.pending)notices.push('<div class="callout">正在后台获取 '+s.pending+' 部作品的海报和简介…</div>');
   $('#library-notice').innerHTML=notices.join('');
-  $('#library-continue').innerHTML=continueRow(data.continueWatching);
-  tabs();
-  grid();
-  // Posters arrive one work at a time, and AI scraping takes a while; keep the wall current until they are done.
+  if(mode){tabs();grid();}else shelves();
+  // Posters arrive one work at a time, and AI scraping takes a while; keep the page current until they are done.
   clearTimeout(timer);
   if((s.fetchMetadata&&s.pending)||s.scanning||data.aiScraping.length)timer=setTimeout(()=>refresh(current),4000);
 }
 
-/** Category tabs, shown once the library holds more than one kind of work. */
+/** Kinds present in the library, in a fixed order. */
+const kinds=()=>Object.keys(CATEGORY).filter(k=>overview.series.some(s=>s.category===k));
+
+function shelves(){
+  const box=$('#library-home');if(!box||!overview)return;
+  observer?.disconnect();
+  const all=overview.series;
+  if(!all.length){box.innerHTML='<div class="panel">'+empty('媒体库还是空的','下载完成的视频会自动出现在这里。下载目录和其他媒体目录里已有的视频，点右上角「扫描媒体目录」即可整理。','▷')+'</div>';return;}
+  if(view.q.trim()){
+    const found=visible(all,'all');
+    box.innerHTML=found.length?'<div class="anime-grid library-grid">'+found.map(card).join('')+'</div>':empty('没有找到作品','换个关键词试试，原名和文件夹名也能搜到。','▷');
+    return;
+  }
+  // Redrawing while posters arrive keeps each shelf where it was scrolled to.
+  const scrolled=new Map([...box.querySelectorAll('.shelf-row')].map(r=>[r.dataset.row,r.scrollLeft]));
+  const byId=new Map(all.map(s=>[s.id,s]));
+  const playing=overview.continueWatching.map(c=>({...c,series:byId.get(c.seriesId)})).filter(c=>c.series);
+  const resuming=playing.filter(c=>resumable(c.episode)),upNext=playing.filter(c=>!resumable(c.episode));
+  const present=kinds();
+  box.innerHTML=shelf('media','我的媒体',present.map(tile).join(''),'tiles')+
+    (resuming.length?shelf('resume','继续观看',resuming.map(thumb).join(''),'wide'):'')+
+    (upNext.length?shelf('next','接下来',upNext.map(thumb).join(''),'wide'):'')+
+    present.map(k=>shelf('latest-'+k,'最近添加的'+CATEGORY[k],all.filter(s=>s.category===k).sort(newest).slice(0,LATEST).map(card).join(''),'posters','#library/'+slug(k))).join('');
+  // Arrows for mouse users, shown only when a shelf overflows.
+  const update=row=>{
+    const nav=row.parentElement.querySelector('.shelf-nav'),[back,forward]=nav.children;
+    nav.hidden=row.scrollWidth<=row.clientWidth+1;
+    back.disabled=row.scrollLeft<=1;forward.disabled=row.scrollLeft+row.clientWidth>=row.scrollWidth-1;
+  };
+  observer=new ResizeObserver(entries=>entries.forEach(e=>update(e.target)));
+  box.querySelectorAll('.shelf-row').forEach(row=>{
+    row.scrollLeft=scrolled.get(row.dataset.row)||0;
+    row.addEventListener('scroll',()=>update(row),{passive:true});
+    observer.observe(row);
+  });
+  box.querySelectorAll('[data-shelf]').forEach(b=>b.onclick=()=>{const row=b.closest('.shelf').querySelector('.shelf-row');row.scrollBy({left:Number(b.dataset.shelf)*row.clientWidth*.85,behavior:'smooth'});});
+}
+
+const shelf=(key,title,items,kind,href)=>'<section class="shelf" aria-label="'+esc(title)+'"><div class="shelf-head"><h2>'+(href?'<a href="'+href+'">'+esc(title)+'<span aria-hidden="true"> ›</span></a>':esc(title))+'</h2>'+
+  '<div class="shelf-nav" hidden><button type="button" class="icon-button" data-shelf="-1" aria-label="向左滚动">‹</button><button type="button" class="icon-button" data-shelf="1" aria-label="向右滚动">›</button></div></div>'+
+  '<div class="shelf-row '+kind+'" data-row="'+key+'">'+items+'</div></section>';
+
+/** A kind of work, pictured by the posters of its latest works, like Jellyfin's library tiles. */
+function tile(kind){
+  const list=overview.series.filter(s=>s.category===kind).sort(newest);
+  return '<a class="media-thumb media-tile" href="#library/'+slug(kind)+'"><div class="thumb-art tile-art" aria-hidden="true">'+list.filter(s=>s.poster).slice(0,3).map(s=>'<img loading="lazy" src="'+esc(s.poster)+'" alt="">').join('')+'</div>'+
+    '<strong>'+CATEGORY[kind]+'</strong><small>'+list.length+' 部作品</small></a>';
+}
+
+/** Continue watching / up next: the backdrop when there is one, else the poster on a blurred copy of itself, else the title. */
+function thumb(c){
+  const e=c.episode,s=c.series,movie=s.category==='Movie',started=resumable(e);
+  const art=s.fanart?'<img loading="lazy" src="'+esc(s.fanart)+'" alt="">':s.poster?'<img loading="lazy" class="thumb-blur" src="'+esc(s.poster)+'" alt=""><img loading="lazy" class="thumb-poster" src="'+esc(s.poster)+'" alt="">':'';
+  const line=movie?(started?'看到 '+clock(e.position)+' / '+clock(e.duration):'电影'):episodeTitle(e);
+  return '<a class="media-thumb" href="#play/'+esc(e.id)+'" title="'+esc(s.title+' · '+line)+'"><div class="thumb-art"><div class="poster-fallback"><strong>'+esc(s.title)+'</strong></div>'+art+'<i aria-hidden="true">▶</i>'+(started?'<div class="library-progress"><i style="width:'+percent(e)+'%"></i></div>':'')+'</div><strong>'+esc(s.title)+'</strong><small>'+esc(line)+'</small></a>';
+}
+
+/** Links between the kinds, shown once the library holds more than one. */
 function tabs(){
   const box=$('#library-categories');if(!box||!overview)return;
-  const counts=overview.series.reduce((c,s)=>(c[s.category]=(c[s.category]||0)+1,c),{});
-  const present=Object.keys(CATEGORY).filter(k=>counts[k]);
-  if(present.length<2){box.hidden=true;view.category='all';return;}
-  if(view.category!=='all'&&!counts[view.category])view.category='all';
-  box.hidden=false;
-  box.innerHTML=[['all','全部',overview.series.length],...present.map(k=>[k,CATEGORY[k],counts[k]])].map(([k,label,n])=>'<button type="button" role="tab" data-category="'+k+'" aria-selected="'+(view.category===k)+'" class="'+(view.category===k?'active':'')+'">'+label+' <small>'+n+'</small></button>').join('');
+  const present=kinds();
+  box.hidden=present.length<2;
+  box.innerHTML=[['all','全部',overview.series.length],...present.map(k=>[k,CATEGORY[k],overview.series.filter(s=>s.category===k).length])].map(([k,label,n])=>'<a href="#library/'+slug(k)+'"'+(mode===k?' class="active" aria-current="page"':'')+'>'+label+' <small>'+n+'</small></a>').join('');
 }
 
-function continueRow(items){
-  if(!items.length)return '';
-  return '<div class="anime-day-heading"><h2>继续观看</h2><span>'+items.length+' 部作品</span></div><div class="continue-row">'+items.map(c=>{
-    const e=c.episode;const pct=percent(e);const started=resumable(e)&&!e.watched;
-    return '<a class="continue-item" href="#play/'+esc(e.id)+'"><div class="continue-thumb">'+(c.poster?'<img loading="lazy" src="'+esc(c.poster)+'" alt="">':'')+'<i aria-hidden="true">▶</i></div><div class="continue-info"><strong>'+esc(c.title)+'</strong><span>'+esc(episodeTitle(e))+'</span><small>'+(started?'看到 '+clock(e.position)+' / '+clock(e.duration):'下一集')+'</small>'+(started?'<div class="progress"><span style="width:'+pct+'%"></span></div>':'')+'</div></a>';
-  }).join('')+'</div>';
-}
-
-function visible(list){
+function visible(list,kind){
   const q=view.q.trim().toLowerCase();
-  const items=list.filter(s=>(view.category==='all'||s.category===view.category)&&(!q||[s.title,s.originalTitle,s.folderTitle].some(t=>(t||'').toLowerCase().includes(q))));
+  const items=list.filter(s=>(kind==='all'||s.category===kind)&&(!q||[s.title,s.originalTitle,s.folderTitle].some(t=>(t||'').toLowerCase().includes(q))));
   const shown=view.filter==='unwatched'?items.filter(s=>s.episodeCount>s.watchedCount):view.filter==='unmatched'?items.filter(s=>s.status!=='Matched'):items;
-  const date=v=>v?Date.parse(v):0;
-  const by={updated:(a,b)=>date(b.updatedAt)-date(a.updatedAt),played:(a,b)=>date(b.playedAt)-date(a.playedAt)||date(b.updatedAt)-date(a.updatedAt),added:(a,b)=>date(b.addedAt)-date(a.addedAt),title:(a,b)=>a.title.localeCompare(b.title,'zh-CN'),score:(a,b)=>(b.score??-1)-(a.score??-1)};
+  const by={updated:newest,played:(a,b)=>date(b.playedAt)-date(a.playedAt)||newest(a,b),added:(a,b)=>date(b.addedAt)-date(a.addedAt),title:(a,b)=>a.title.localeCompare(b.title,'zh-CN'),score:(a,b)=>(b.score??-1)-(a.score??-1)};
   return shown.sort(by[view.sort]||by.updated);
 }
 
 function grid(){
   const box=$('#library-grid');if(!box||!overview)return;
-  if(!overview.series.length){box.innerHTML='<div class="panel">'+empty('媒体库还是空的','下载完成的视频会自动出现在这里。下载目录和其他媒体目录里已有的视频，点右上角「扫描媒体目录」即可整理。','▷')+'</div>';return;}
-  const items=visible(overview.series);
+  if(!overview.series.some(s=>mode==='all'||s.category===mode)){box.innerHTML='<div class="panel">'+empty(mode==='all'?'媒体库还是空的':'还没有'+CATEGORY[mode],'下载完成的视频会自动出现在这里；可以在 设置中心 → 媒体库 添加媒体目录并设置类别。','▷')+'</div>';return;}
+  const items=visible(overview.series,mode);
   box.innerHTML=items.length?'<div class="anime-grid library-grid">'+items.map(card).join('')+'</div>':empty('没有符合条件的作品','换个关键词或筛选条件试试。','▷');
 }
 
@@ -128,7 +188,7 @@ function renderDetail(d){
   const fixed=d.episodes.some(e=>e.numberSource);
   const more='<details class="sub-more popup"><summary>更多</summary><div class="sub-menu"><button type="button" data-all="true">全部标为已看</button><button type="button" data-all="false">全部标为未看</button><button type="button" id="series-playlist">下载播放列表（M3U）</button>'+(fixed?'<button type="button" id="series-reset">恢复自动识别集数</button>':'')+'</div></details>';
   const unnumbered=s.unnumbered&&!movie?'<div class="callout">有 '+s.unnumbered+' 个视频没能从文件名识别出集数。'+(d.aiAvailable?'<button type="button" class="compact" id="series-recognize">用 AI 识别集数</button>':'在设置中配置 AI 后可以自动识别，')+' 也可以点视频旁的「集数」手动修改。</div>':'';
-  $('#content').innerHTML='<a class="back-link" href="#library">← 媒体库</a>'+
+  $('#content').innerHTML='<a class="back-link" href="'+esc(view.from)+'">← '+esc(view.fromLabel)+'</a>'+
     '<section class="panel library-hero">'+(s.fanart?'<div class="library-backdrop" style="background-image:url(\''+esc(s.fanart)+'\')" aria-hidden="true"></div>':'')+'<div class="poster">'+(s.poster?'<img src="'+esc(s.poster)+'" alt="">':'<div class="poster-fallback"><strong>'+esc(s.title)+'</strong></div>')+'</div>'+
     '<div class="library-info"><div class="eyebrow">'+esc(s.directory||'下载目录')+'</div><h1>'+esc(s.title)+'</h1>'+(s.originalTitle&&s.originalTitle!==s.title?'<p class="library-original">'+esc(s.originalTitle)+'</p>':'')+'<div class="library-facts">'+facts.map(f=>'<span>'+esc(f)+'</span>').join('')+'</div></div>'+
     '<div class="library-more">'+(m?.summary?'<p class="library-summary" id="library-summary">'+esc(m.summary)+'</p>':'')+(source?'<p class="library-source">'+source+'</p>':'')+aiNotice+status+'<div class="library-actions">'+play+(d.aiAvailable?'<button type="button" id="series-ai"'+(ai?.state==='running'?' disabled':'')+'>AI 刮削</button>':'')+'<button type="button" id="series-match">修正匹配</button><button type="button" id="series-refresh">重新获取资料</button>'+more+'</div></div></section>'+
