@@ -16,12 +16,12 @@ function subscriptionCard(s,showNode){
   const submitted=s.history.filter(h=>!h.skipped).length;
   const node=showNode?state.config.nodes.find(n=>n.id===s.nodeId)?.name||s.nodeId:'';
   const rules=[s.filter?['包含',s.filter,s.isFilterRegex]:null,s.excludeFilter?['排除',s.excludeFilter,s.isExcludeFilterRegex]:null].filter(Boolean);
-  const meta=['<span>已提交 <b>'+submitted+'</b></span>','<span title="最近检查：'+esc(time(s.lastChecked))+'">'+esc(ago(s.lastChecked))+'</span>',node?'<span title="下载节点">↓ '+esc(node)+'</span>':''].join('');
+  const extra=s.lastError?['<span class="sub-error" title="'+esc(s.lastError)+'">检查失败：'+esc(s.lastError)+'</span>']
+    :rules.map(([label,value,regex])=>'<span class="sub-rule" title="'+label+(regex?'（正则）':'')+'：'+esc(value)+'"><small>'+label+(regex?' .*':'')+'</small><span>'+esc(value)+'</span></span>');
+  const meta=['<span>已提交 <b>'+submitted+'</b></span>','<span title="最近检查：'+esc(time(s.lastChecked))+'">'+esc(ago(s.lastChecked))+'</span>',node?'<span title="下载节点">↓ '+esc(node)+'</span>':'',...extra].join('');
   return '<article class="sub-card'+(s.enabled?'':' paused')+'"><div class="sub-main">'+
     '<div class="sub-title"><h3 title="'+esc(s.name+'\n'+maskSecrets(s.url))+'">'+esc(s.name)+'</h3>'+(s.enabled?'':'<span class="badge paused">已暂停</span>')+'</div>'+
     '<div class="sub-meta">'+meta+'</div>'+
-    (rules.length?'<div class="sub-rules">'+rules.map(([label,value,regex])=>'<span class="sub-rule" title="'+label+(regex?'（正则）':'')+'：'+esc(value)+'"><small>'+label+(regex?' .*':'')+'</small>'+esc(value)+'</span>').join('')+'</div>':'')+
-    (s.lastError?'<div class="sub-error" title="'+esc(s.lastError)+'">检查失败：'+esc(s.lastError)+'</div>':'')+
     '</div><div class="sub-actions"><button data-edit="'+id+'" aria-label="编辑：'+esc(s.name)+'" title="编辑">✎</button><details class="sub-more"><summary aria-label="'+esc(s.name)+'：更多操作" title="更多操作">⋯</summary><div class="sub-menu"><button data-history="'+id+'">查看历史</button><button data-check="'+id+'">立即检查</button><button data-redownload="'+id+'">重新下载全部</button><button data-toggle="'+id+'">'+(s.enabled?'暂停订阅':'启用订阅')+'</button><button data-delete="'+id+'" class="danger">删除订阅</button></div></details></div></article>';
 }
 
